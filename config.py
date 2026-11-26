@@ -55,9 +55,18 @@ PROJECTS = {
     "rpg": {
         "name": "Cinematic RPG modpack (Dahaad)",
         "notes": os.path.join(_HERE, "projects", "rpg.md"),
+        # Snapshot of the mod sheet (Mod, Status, In Cinema). Refresh: download the sheet as CSV to this path.
+        "sheet": os.path.join(_HERE, "projects", "rpg_mods.csv"),
+        # Words from the other project's look that must not show up here (word -> why).
+        "avoid": {"obsidian": "obsidian is the Fort Redux look; use deepslate, blackstone or basalt here",
+                  "armour plat": "armour plating is the Fort Redux look", "sentr": "sentries are Fort Redux"},
         "modpack_dir": os.path.join(_INSTANCES, "Cinema"),
         "loader": "neoforge", "game_version": "1.21.1", "mod_docs": False,
-        "workers": ["architect", "designer", "developer", "researcher", "pack_engineer", "master_builder"],
+        "workers": ["architect", "designer", "developer", "researcher", "pack_engineer", "master_builder",
+                    "lore_writer", "gameplay_designer"],
+        # Names the Lore Writer must spell exactly (near-misses are flagged).
+        "canon_names": ["Dahaad", "Selhaven", "Deepgate", "Shardfell", "Vael", "Frost Keep", "Gilded Hall",
+                        "Kings' Gate", "Lone Beacon", "Lost Manor", "Black Reach", "Jin Dahaad"],
         "context": "Minecraft 1.21.1 NeoForge modpack from CurseForge (instance 'Cinema'): a cinematic "
                    "dark-fantasy winter RPG with Monster Hunter-style hunting. Only NeoForge 1.21.1 builds count; "
                    "Forge 1.20.1-only mods are 'Pinned', not usable.",
@@ -75,6 +84,9 @@ GAME_VERSION = _P["game_version"]
 MOD_DOCS = _P.get("mod_docs", False)
 # Which agents this project may use (25 Nov 2026): the Orchestrator only picks from these.
 WORKERS = _P.get("workers", ["architect", "designer", "developer", "researcher"])
+CANON_NAMES = _P.get("canon_names", [])
+SHEET_FILE = _P.get("sheet", "")
+AVOID = _P.get("avoid", {})
 # The vanilla game jar: its English names are the list of real blocks the checks compare against.
 MINECRAFT_JAR = os.getenv("GRAPH_MINECRAFT_JAR", os.path.join(
     os.path.expanduser("~"), "curseforge", "minecraft", "Install", "versions", GAME_VERSION, f"{GAME_VERSION}.jar"))

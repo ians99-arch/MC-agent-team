@@ -19,13 +19,14 @@ if "--project" in sys.argv:
 from langgraph.graph import END, StateGraph
 
 import config
-from agents import (WORKERS, TeamState, architect, designer, developer, master_builder, orchestrator,
-                    pack_engineer, researcher)
+from agents import (WORKERS, TeamState, architect, designer, developer, gameplay_designer, lore_writer,
+                    master_builder, orchestrator, pack_engineer, researcher)
 
 
 # Markers the checks in agents.py add to the agents' text, with how the summary names them (25 Nov 2026).
 FLAG_KINDS = [
     ("(correction:", "corrections"),
+    ("(math check:", "math problems"),
     ("(file name not in sources", "unverified file names"),
     ("[link not in sources - removed]", "invented links removed"),
     ("(unverified", "unverified facts"),
@@ -34,6 +35,11 @@ FLAG_KINDS = [
     ("(new idea", "new ideas not in the task or research"),
     ("(not a known block", "unknown blocks"),
     ("(code check:", "code problems"),
+    ("(lore check:", "lore problems"),
+    ("(look check:", "look problems"),
+    ("(tier check:", "tier problems"),
+    ("(mod check:", "mods not installed"),
+    ("(not a known item", "unknown items"),
     ("[cut off at the length limit]", "answers cut off"),
     ("[model timed out", "model timeouts"),
 ]
@@ -50,7 +56,7 @@ def finalize(state: TeamState) -> dict:
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     path = os.path.join(config.OUTPUT_DIR, f"report_{stamp}.md")
-    body = "\n".join(state.get(k) or "" for k in ("plan", "research", "pack", "design", "build", "code"))
+    body = "\n".join(state.get(k) or "" for k in ("plan", "research", "pack", "design", "build", "lore", "gameplay", "code"))
     sections = [
         f"# {state['task']}",
         f"Project: {config.PROJECT_NAME}",
@@ -60,6 +66,8 @@ def finalize(state: TeamState) -> dict:
         "## Pack check", state.get("pack") or "_not needed_",
         "## Design", state.get("design") or "_not needed_",
         "## Build spec", state.get("build") or "_not needed_",
+        "## Lore", state.get("lore") or "_not needed_",
+        "## Gameplay", state.get("gameplay") or "_not needed_",
         "## Code", state.get("code") or "_not needed_",
         "## Work log", "\n".join(f"- {h}" for h in state.get("history", [])),
     ]
@@ -77,6 +85,8 @@ def build_graph():
     g.add_node("researcher", researcher)
     g.add_node("pack_engineer", pack_engineer)
     g.add_node("master_builder", master_builder)
+    g.add_node("lore_writer", lore_writer)
+    g.add_node("gameplay_designer", gameplay_designer)
     g.add_node("finalize", finalize)
 
     g.set_entry_point("orchestrator")

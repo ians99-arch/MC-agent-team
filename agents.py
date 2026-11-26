@@ -10,13 +10,14 @@ from pydantic import BaseModel, Field
 
 import config
 from project_context import load_project_notes, mod_list_text
-from research_tools import (dependency_report, installed_mod_names, installed_mods, known_block_names, prune_web_cache, search_curseforge, search_github, search_local_mods, search_minecraft_wiki,
+from research_tools import (crash_report, sheet_rows, sheet_status, dependency_report, installed_mod_names, installed_mods, known_block_names, prune_web_cache, search_curseforge, search_github, search_local_mods, search_minecraft_wiki,
                             search_mod_docs, search_modrinth, search_youtube, stress_calculator)
 
 PROJECT_NOTES = load_project_notes()
 MOD_LIST = mod_list_text()
 
-WORKERS = ["architect", "designer", "developer", "researcher", "pack_engineer", "master_builder"]   # every agent; projects pick theirs in config
+WORKERS = ["architect", "designer", "developer", "researcher", "pack_engineer", "master_builder", "lore_writer",
+           "gameplay_designer"]   # every agent; projects pick theirs in config
 
 
 # ---------- Shared state ----------
@@ -28,6 +29,8 @@ class TeamState(TypedDict, total=False):
     research: str      # Minecraft Researcher
     pack: str          # Pack Engineer (dependency check + explanation)
     build: str         # Master Builder (build spec, terrain steps, block estimates)
+    lore: str          # Lore Writer (in-world text)
+    gameplay: str      # Gameplay Designer (loop, tiers, quests, rewards)
     instructions: str  # Orchestrator's note to the next agent
     next: str
     steps: int
@@ -107,16 +110,33 @@ def _notes_for_agents(notes: str, limit: int | None = None) -> str:
     return (rest[:room].rstrip() + "\n...[notes trimmed]\n\n" + rules).strip()
 
 
+def _sheet_for_task(task: str) -> str:
+    """The mod sheet's status for each sheet mod the task names (25 Nov 2026: the researcher said Wild Hunt
+    wasn't a recommended mod; the sheet says Recommended)."""
+    low = task.lower()
+    lines = []
+    for r in sheet_rows():
+        core = re.sub(r"\(.*?\)", "", r["Mod"]).strip()
+        if len(core) >= 4 and core.lower() in low:
+            have = (r.get("In Cinema") or "").strip()
+            lines.append(f"- {core}: {r.get('Status') or '?'} on the sheet"
+                         + ({"Yes": ", installed", "No": ", NOT installed yet"}.get(have, "")))
+    return ("MOD SHEET (your decisions so far):\n" + "\n".join(lines) + "\n\n") if lines else ""
+
+
 def _context(state: TeamState) -> str:
     notes = load_project_notes()          # re-read every time, so edits to project.md apply to the next run
     return (
         f"PROJECT NOTES:\n{_notes_for_agents(notes) or '(none)'}\n\n"
         f"TASK:\n{state['task']}\n\n"
+        + _sheet_for_task(state.get("task", "")) +
         f"ARCHITECT PLAN:\n{_clip(state.get('plan')) or '(none yet)'}\n\n"
         f"DESIGN:\n{_clip(state.get('design')) or '(none yet)'}\n\n"
         f"MINECRAFT RESEARCH:\n{_clip(state.get('research'), 5000) or '(none yet)'}\n\n"
         f"PACK CHECK:\n{_clip(state.get('pack'), 2500) or '(none yet)'}\n\n"
         f"BUILD SPEC:\n{_clip(state.get('build'), 3000) or '(none yet)'}\n\n"
+        f"LORE:\n{_clip(state.get('lore'), 2000) or '(none yet)'}\n\n"
+        f"GAMEPLAY:\n{_clip(state.get('gameplay'), 3000) or '(none yet)'}\n\n"
         f"CODE:\n{_clip(state.get('code'), 3000) or '(none yet)'}\n\n"
         f"ORCHESTRATOR'S INSTRUCTIONS FOR YOU:\n{state.get('instructions', '')}"
     )
@@ -124,7 +144,7 @@ def _context(state: TeamState) -> str:
 
 # ---------- Orchestrator ----------
 class Route(BaseModel):
-    next: Literal["architect", "designer", "developer", "researcher", "pack_engineer", "master_builder", "FINISH"]
+    next: Literal["architect", "designer", "developer", "researcher", "pack_engineer", "master_builder", "lore_writer", "gameplay_designer", "FINISH"]
     instructions: str = Field(description="What the chosen agent should do next")
     reason: str = Field(description="One short sentence on why")
 
@@ -136,6 +156,8 @@ ORCHESTRATOR_PROMPT = """You are the Orchestrator of a small team:
 - researcher: looks up Minecraft facts, mechanics, recipes, mods (Create, TACZ, etc.)
 - pack_engineer: checks the installed mods' versions, required mods and compatibility from the real mod files
 - master_builder: turns a plan/design into a buildable spec (size table, layer-by-layer steps, terrain shaping)
+- lore_writer: writes in-world text (books, journals, signs, inscriptions, legends) that fits the project's lore
+- gameplay_designer: designs how the pack plays (hunting loop, progression tiers, quests and bounties, loot and rewards, the start of the game) using the installed mods
 Pick ONE agent to act next, or FINISH when the task is fully covered.
 Don't repeat an agent unless its output needs revising. Prefer research before
 design/code when Minecraft facts matter. Reply only with the JSON requested."""
@@ -146,6 +168,9 @@ _NO_CODE = re.compile(r"\b(review only|no code|design task only|do not redesign|
 _NO_RESEARCH = re.compile(r"\bno research\b", re.I)
 # What the task asks for, so the orchestrator can't finish without it (25 Nov 2026: a "plan and design"
 # task ended after the Architect; the Designer never ran).
+_GAMEPLAY = re.compile(r"\b(gameplay|hunting loop|game loop|progression|tiers?|quests?|quest boards?|bount(?:y|ies)|"
+                       r"loot|rewards?|early game|first hours|crafting tree|upgrade path)\b", re.I)
+_BUILDISH = re.compile(r"\b(build\w*|rooms?|halls?|interior|towers?|keep|walls?|layout|look)\b", re.I)
 _WANTS = [("designer", "designer: design written", re.compile(r"\bdesign\b", re.I)),
           ("developer", "developer: code written",
            re.compile(r"\b(code|function|datapack|mcfunction|script|config file|kubejs)\b", re.I)),
@@ -153,26 +178,54 @@ _WANTS = [("designer", "designer: design written", re.compile(r"\bdesign\b", re.
            re.compile(r"\b(compatib\w*|dependenc\w*|required mods?|mod list|conflicts?|crash\w*|missing mods?)\b", re.I)),
           ("master_builder", "master_builder: spec written",
            re.compile(r"\b(build spec|blueprint|layer[- ]by[- ]layer|block (?:list|counts?)|how many blocks|"
-                      r"terraform\w*|terrain)\b", re.I))]
+                      r"terraform\w*|terrain)\b", re.I)),
+          ("lore_writer", "lore_writer: written",
+           re.compile(r"\b(lore|backstory|story|legend|myths?|journal|diary|book text|written book|"
+                      r"inscriptions?|epitaph|sign text|in-world text)\b", re.I)),
+          ("pack_engineer", "pack_engineer:", _GAMEPLAY),       # gameplay leans on mods: check them first
+          ("gameplay_designer", "gameplay_designer: designed", _GAMEPLAY)]
 
 
 def _runs(state: TeamState, agent: str) -> int:
     return sum(1 for h in state.get("history", []) if h.startswith(agent + ":"))
 
 
+_ONE_PART = re.compile(r"(?<!and )\b(design|review|code|lore|gameplay|build spec|research)(?: task)? only\b", re.I)
+_ONLY = [(re.compile(r"\bgameplay only\b", re.I), {"pack_engineer", "gameplay_designer"}),
+         (re.compile(r"\blore only\b", re.I), {"lore_writer"}),
+         (re.compile(r"\bbuild spec only\b", re.I), {"master_builder"}),   # 25 Nov: designer ran twice on one
+         (re.compile(r"(?<!and )\bdesign only\b", re.I), {"designer"}),
+         (re.compile(r"\bresearch only\b", re.I), {"researcher", "pack_engineer"}),
+         (re.compile(r"\bcode only\b", re.I), {"developer", "researcher"})]
+
+
 def _allowed(state: TeamState, agent: str) -> bool:
     if agent not in config.WORKERS:
         return False                               # not on this project's roster
+    for rx, team in _ONLY:
+        if rx.search(state.get("task", "")) and agent not in team:
+            return False                           # "gameplay only": 25 Nov the architect, designer and lore
+                                                   # writer all ran and padded the report
     if agent == "developer" and _NO_CODE.search(state.get("task", "")):
         return False                               # the task said no code
-    if agent in ("architect", "designer", "developer", "master_builder") and _runs(state, agent) >= MAX_RUNS_PER_AGENT:
+    if (agent in ("architect", "designer", "developer", "master_builder", "lore_writer", "gameplay_designer")
+            and _runs(state, agent) >= MAX_RUNS_PER_AGENT):
         return False
-    if agent == "pack_engineer" and _runs(state, agent) >= 1:
+    if agent in ("pack_engineer", "gameplay_designer", "lore_writer") and _runs(state, agent) >= 1:
         return False                               # its check is code: running it twice gives the same answer
     if (agent == "researcher" and "pack_engineer" in config.WORKERS and _WANTS[2][2].search(state.get("task", ""))
             and not any(h.startswith("pack_engineer:") for h in state.get("history", []))):
         return False                               # compatibility tasks: the code check first (25 Nov: research
                                                    # ran first and added a false dependency claim)
+    if agent == "architect" and _ONE_PART.search(state.get("task", "")):
+        return False                               # "design only", "review only"...: no plan wanted
+    if agent == "lore_writer" and not _WANTS[4][2].search(state.get("task", "")):
+        return False                               # 25 Nov: joined a gameplay task nobody asked lore for
+    if agent == "gameplay_designer" and not _GAMEPLAY.search(state.get("task", "")):
+        return False
+    if (agent == "gameplay_designer" and "pack_engineer" in config.WORKERS
+            and not any(h.startswith("pack_engineer:") for h in state.get("history", []))):
+        return False                               # it must design from the checked mod list, not from memory
     if agent == "researcher" and _NO_RESEARCH.search(state.get("task", "")):
         return False                               # the task said no research (25 Nov: invented sizes)
     if agent == "researcher" and _research_calls(state) >= config.MAX_RESEARCH_CALLS:
@@ -183,10 +236,19 @@ def _allowed(state: TeamState, agent: str) -> bool:
     return True
 
 
+_SECTIONS = ("plan", "research", "pack", "design", "build", "lore", "gameplay", "code")
+
+
 def _fallback_route(state: TeamState) -> Route:
-    for field, agent in [("plan", "architect"), ("design", "designer"), ("code", "developer")]:
-        if not state.get(field) and _allowed(state, agent):
-            return Route(next=agent, instructions="Do your part of the task.", reason="fallback order")
+    """When the model's pick can't be used: what the task asks for next; otherwise, if someone has already
+    written something, finish (25 Nov: the old architect -> designer -> developer order padded reports)."""
+    need = _still_needed(state)
+    if need:
+        return Route(next=need, instructions="Do your part of the task.", reason="fallback: the task asks for it")
+    if not any(state.get(f) for f in _SECTIONS):
+        for agent in ("architect", "designer", "developer"):
+            if _allowed(state, agent):
+                return Route(next=agent, instructions="Do your part of the task.", reason="fallback order")
     return Route(next="FINISH", instructions="", reason="fallback: nothing useful left to do")
 
 
@@ -240,9 +302,22 @@ def _stem(word: str) -> str:
     return w[:-1] if w.endswith("s") and not w.endswith("ss") and len(w) > 3 else w
 
 
-def _check_blocks(out: str) -> str:
+_ITEMISH = set("sword axe pickaxe shovel hoe helmet chestplate leggings boots bow crossbow trident shield ingot "
+               "nugget hide leather scale scute shard fang claw horn bone gem armor armour mace spear".split())
+_ITEM_FLAG = " (not a known item - check)"
+
+
+def _check_items(out: str) -> str:
+    """Same check as _check_blocks for bold item names (gear, materials). Custom items the pack would add
+    with KubeJS are marked '(custom' by the writer and skipped."""
+    mods = {n.lower() for n in installed_mod_names()}       # "Fantasy Armor" is a mod, not an item
+    return _check_blocks(out, _ITEMISH, _ITEM_FLAG, skip=mods)
+
+
+def _check_blocks(out: str, endings: set | None = None, flag: str = _BLOCK_FLAG, skip: set = frozenset()) -> str:
     """Flag bold block names that no vanilla or installed-mod block matches (25 Nov 2026: 'snowy gravel',
     'basalt slabs'). A phrase is fine if all its words appear in one real block's name."""
+    endings = endings or _BLOCKISH
     names = known_block_names()
     if not names:
         return out
@@ -251,13 +326,16 @@ def _check_blocks(out: str) -> str:
     def check(m):
         phrase = m.group(1)
         words = [_stem(w) for w in re.findall(r"[A-Za-z'’-]+", phrase)]
-        if (len(words) < 2 or words[-1] not in _BLOCKISH or {"no", "non", "non-vanilla", "vanilla", "modded"} & set(words)
-                or out[m.end():m.end() + len(_BLOCK_FLAG)] == _BLOCK_FLAG):           # headings, not blocks
+        after = out[m.end():m.end() + 40]
+        if phrase.strip().lower() in skip:
+            return m.group(0)
+        if (len(words) < 2 or words[-1] not in endings or {"no", "non", "non-vanilla", "vanilla", "modded"} & set(words)
+                or after.startswith(flag) or re.match(r"\s*\(custom", after, re.I)):   # headings, not blocks
             return m.group(0)
         core = set(words) - {"block"} or set(words)     # 'blue ice blocks' is Blue Ice
         if any(core <= nw for nw in name_words):
             return m.group(0)
-        return m.group(0) + _BLOCK_FLAG
+        return m.group(0) + flag
 
     return _BOLD.sub(check, out)
 
@@ -266,6 +344,8 @@ def _still_needed(state: TeamState) -> str | None:
     """First agent the task asks for (design / code) that hasn't written its part, if it may still run."""
     task, hist = state.get("task", ""), state.get("history", [])
     for agent, done, wants in _WANTS:
+        if agent == "designer" and _GAMEPLAY.search(task) and not _BUILDISH.search(task):
+            continue                               # "design the hunting loop" is gameplay, not a building design
         if wants.search(task) and not any(h.startswith(done) for h in hist) and _allowed(state, agent):
             return agent
     return None
@@ -330,8 +410,10 @@ def orchestrator(state: TeamState) -> dict:
     # review-only tasks (on 9 Nov the developer ran 4 times in a row on a review task).
     if route.next != "FINISH" and not _allowed(state, route.next):
         blocked = route.next
-        route = _fallback_route(state)
-        route.reason = f"{blocked} not allowed again for this task; " + route.reason
+        need = _still_needed(state)                # 25 Nov: gameplay picked before the Pack Engineer fell
+        route = (Route(next=need, instructions="Do your part of the task.", reason="the task needs it next")
+                 if need else _fallback_route(state))   # back to architect + designer, which nobody asked for
+        route.reason = f"{blocked} not allowed yet; " + route.reason
     # The task asked for a design or code that nobody has written yet: do that before finishing.
     if route.next == "FINISH":
         need = _still_needed(state)
@@ -424,13 +506,20 @@ def developer(state: TeamState) -> dict:
     return {"code": _check_code(_worker_check(out, state)), "history": ["developer: code written"]}
 
 
+_CRASHY = re.compile(r"\b(crash\w*|launch\w*|won'?t start|log|errors?)\b", re.I)
+
+
 def pack_engineer(state: TeamState) -> dict:
     """Checks installed mods in code and summarises the result in code too (25 Nov 2026: the model, asked only
     to explain a correct check, claimed Create 6.0.8 was outside [6.0.7,6.1.0) and advised a downgrade)."""
     report = dependency_report(state.get("task", ""))
     if report.startswith("["):
         return {"pack": report, "history": ["pack_engineer: checked (no mod files)"]}
-    return {"pack": report + "\n\n" + _pack_summary(report), "history": ["pack_engineer: checked"]}
+    crash = crash_report()
+    if "no load errors." in crash and not _CRASHY.search(state.get("task", "")):
+        crash = ""                                   # nothing broke: keep the report short
+    full = report + ("\n\n" + crash if crash else "")
+    return {"pack": full + "\n\n" + _pack_summary(full), "history": ["pack_engineer: checked"]}
 
 
 def _pack_summary(report: str) -> str:
@@ -439,13 +528,31 @@ def _pack_summary(report: str) -> str:
     wrong = re.findall(r"needs ([\w.-]+) (\S*) -> installed (\S+) \(wrong version\)", report)
     unchecked = len(re.findall(r"\(range not checked\)", report))
     if not missing and not wrong:
-        out = ["- No problems: every required mod is installed at a version the mods accept. Nothing to change."]
+        out = ["- No problems: every required mod is installed at a version the mods accept."
+               + ("" if re.search(r"failed to load|newest crash report", report) else " Nothing to change.")]
     else:
         out = [f"- Missing: install {d} (version {r or 'any'})." for d, r in missing]
         out += [f"- Wrong version: {d} {v} is installed, but {r} is required. Change {d} to a version in {r}."
                 for d, r, v in wrong]
+        out = list(dict.fromkeys(out))               # three mods needing the same fix: say it once
     if unchecked:
         out.append(f"- {unchecked} version range(s) couldn't be checked automatically: compare them by hand.")
+    failed = re.findall(r"- mod '([\w-]+)' failed to load", report)
+    owners = re.findall(r"belongs to '([\w-]+)'", report)
+    for mod in failed:
+        if owners:
+            out.append(f"- Launch crash: '{mod}' failed to load because it needs code that your installed "
+                       f"'{owners[0]}' doesn't have: it was built for a different '{owners[0]}' version. Change "
+                       f"'{mod}' to the version made for your '{owners[0]}' (or the other way round).")
+        else:
+            out.append(f"- Launch crash: '{mod}' failed to load; see LAST LAUNCH above.")
+    if "## LAST LAUNCH" in report and not failed and "no load errors" not in report:
+        out.append("- The last launch crashed: see LAST LAUNCH above for what the files say.")
+    planned = [r["Mod"] for r in sheet_rows()
+               if r.get("Status") in ("Core", "Recommended") and (r.get("In Cinema") or "").strip() == "No"]
+    if planned:
+        out.append(f"- From the mod sheet: {len(planned)} Core/Recommended mods aren't in the pack yet: "
+                   + ", ".join(planned[:12]) + (" ..." if len(planned) > 12 else "") + ".")
     return "\n".join(out)
 
 
@@ -463,10 +570,32 @@ def _math_check(out: str) -> str:
     return _MATH.sub(fix, out)
 
 
-_SIZE_ROW = re.compile(r"^\s*\|\s*\**([^|*]+?)\**\s*\|[^\n]*?(\d+)\s*[x×]\s*(\d+)\s*[x×]\s*(\d+)", re.M)
+# A size-table row: "| Part | 9 x 9 x 8 | ..." or, as the model sometimes writes it, "- Part | 9 x 9 x 8 | ...".
+_SIZE_ROW = re.compile(r"^\s*(?:\||[-*]\s)?\s*\**([^|*\n]+?)\**\s*\|[^\n]*?(\d+)\s*[x×]\s*(\d+)\s*[x×]\s*(\d+)", re.M)
+_THIN = re.compile(r"\b(one|1)[- ]block[- ]thick\b|\bhollow\b", re.I)
 
 
-_NOT_A_BUILDING = re.compile(r"terrain|ground|drift|snow|ice field|shore|cliff|water|path|area|site|footprint", re.I)
+def _hollow_check(spec: str, task: str) -> str:
+    """'One block thick' means a ring, not a solid floor on every layer (25 Nov 2026: a 5x5 tower laid 25 blocks
+    a layer; the ring is 16). Flags step lines that use the solid count for a footprint in the task."""
+    if not _THIN.search(task):
+        return spec
+    sizes = {(int(a), int(b)) for a, b in re.findall(r"(\d+) blocks? wide,? (\d+) (?:blocks? )?deep", task)}
+    sizes |= {(int(a), int(b)) for a, b, _ in re.findall(r"(\d+)\s*[x×]\s*(\d+)\s*[x×]\s*(\d+)", task)}
+    notes = []
+    for w, d in sizes:
+        solid, ring = w * d, 2 * (w + d) - 4
+        steps = "\n".join(ln for ln in spec.splitlines() if "|" not in ln)      # not the size table
+        said_solid = re.search(rf"\b{solid}\b[^\n]*?\b(blocks?|bricks?)\b", steps, re.I)
+        said_grid = re.search(rf"\b{w}\s*[x×]\s*{d}\b(?!\s*[x×])[^\n]*?\b(blocks?|bricks?|layer)", steps, re.I)
+        if w > 2 and d > 2 and (said_solid or said_grid):
+            notes.append(f"a one-block-thick {w} x {d} wall is {ring} blocks per layer (a ring), not {solid} "
+                         "(a solid floor); only the floor and roof are solid")
+    return spec + ("\n\n" + "\n".join(f"(math check: {n})" for n in notes) if notes else "")
+
+
+_NOT_A_BUILDING = re.compile(r"terrain|ground|drift|snow|ice field|shore|cliff|water|path|area|site|footprint|"
+                             r"ladder|stair|door|window|banner|lantern", re.I)
 
 
 def _block_estimates(spec: str) -> str:
@@ -495,7 +624,8 @@ def master_builder(state: TeamState) -> dict:
         "You are the Master Builder; you also plan terrain. Turn the plan or design into a spec someone can "
         "build from: 1) a size table with columns Part | Size (W x D x H blocks) | Main blocks, one row per "
         "part, sizes written exactly like '9 x 9 x 8'; 2) numbered layer-by-layer build steps, from the "
-        "ground up; 3) terrain shaping steps if the site needs them (cliffs, shoreline, ice). Use real block "
+        "ground up (walls are a ring one block thick unless the task says solid: only floors and roofs fill the whole "
+        "footprint; put doors, ladders and windows in the step where they go); 3) terrain shaping steps if the site needs them (cliffs, shoreline, ice). Use real block "
         "names from vanilla or the installed mods, and keep to the project's look rules. Don't count blocks "
         "yourself: block estimates are added by code from your size table. Write only those three sections: "
         "no notes for other agents, no extra tips or warnings, no claims about mods. Worldgen mods (terrain, "
@@ -503,9 +633,169 @@ def master_builder(state: TeamState) -> dict:
         + _GROUNDED,
         _context(state), model=design_llm,
     )
-    out = _math_check(_worker_check(out, state))
+    out = _hollow_check(_math_check(_worker_check(out, state)), state.get("task", ""))
     est = _block_estimates(out)
     return {"build": out + ("\n\n" + est if est else ""), "history": ["master_builder: spec written"]}
+
+
+_FALL_WORDS = re.compile(r"\b(fell|fall|destroy\w*|ended|doom\w*|ruin\w*|perish\w*|lost|collapse\w*)\b", re.I)
+_WRONG_CAUSE = re.compile(r"\b(fire|flames?|burn\w*|war|plague|siege|invasion|invaders|flood\w*|earthquake|dragon)\b", re.I)
+_FROST = re.compile(r"\b(frost|froze|frozen|freez\w*|ice|icy|winter|cold|snow)\b", re.I)
+
+
+BOOK_PAGE_CHARS = 260  # roughly what one written-book page shows (14 short lines)
+
+
+def _look_check(out: str) -> str:
+    """Words from the other project's look (config 'avoid'), flagged once each (25 Nov 2026: an RPG trophy
+    hall framed in obsidian)."""
+    notes = [why for word, why in config.AVOID.items()
+             if re.search(r"\b" + re.escape(word), out, re.I) and f"(look check: {why})" not in out]
+    return out + ("\n\n" + "\n".join(f"(look check: {n})" for n in notes) if notes else "")
+
+
+def _lore_check(out: str) -> str:
+    """Lore rules checked in code (25 Nov 2026): canon names spelled exactly, and the kingdom fell to the
+    frost, not to something else. Notes go after the paragraph they're about."""
+    import difflib
+    names = config.CANON_NAMES
+    if not names or "(lore check:" in out:
+        return out
+    singles = [n for n in names if " " not in n]
+    game_words = {w for n in known_block_names() for w in n.split()}   # 25 Nov: 'Deepslate' isn't 'Deepgate'
+    notes = []
+    for word in sorted({re.sub(r"'s?$", "", w) for w in re.findall(r"\b[A-Z][a-z']{3,}\b", out)}):
+        if word in singles or word.lower() in game_words:
+            continue
+        close = difflib.get_close_matches(word, singles, n=1, cutoff=0.85)
+        if close:
+            notes.append(f"'{word}' looks like a misspelling of '{close[0]}'")
+    pages = re.split(r"\**Page \d+\**", out)[1:]
+    for i, page in enumerate(pages, 1):
+        page = re.split(r"\n\s*\(|\n#", page)[0].strip()
+        if len(page) > BOOK_PAGE_CHARS:
+            notes.append(f"Page {i} is {len(page)} characters; about {BOOK_PAGE_CHARS} fit on one book page in-game, "
+                         "so split or shorten it")
+    for para in re.split(r"\n\s*\n", out):
+        if re.search(r"\bDahaad\b|kingdom", para) and _FALL_WORDS.search(para) and _WRONG_CAUSE.search(para) \
+                and not _FROST.search(para):
+            notes.append("this says the kingdom fell to something other than the frost; canon: the frost took it")
+            break
+    return out + ("\n\n" + "\n".join(f"(lore check: {n})" for n in notes) if notes else "")
+
+
+def lore_writer(state: TeamState) -> dict:
+    out = _ask(
+        "You are the Lore Writer. Write the in-world text the task asks for (books, journals, signs, "
+        "inscriptions, legends) in the voice of the world, not as notes about it. Follow the Lore section of "
+        "the project notes exactly: never contradict it, never rename places, and spell every name exactly as "
+        "the notes do. Keep each book page under 250 characters (2-4 short sentences) and label them 'Page 1', 'Page 2'; "
+        "use more pages rather than longer ones. "
+        "No modern words, no game terms (blocks, mods, players), no out-of-world commentary.",
+        _context(state), model=design_llm,
+    )
+    out = _math_check(_worker_check(out, state))
+    return {"lore": out, "history": ["lore_writer: written"]}
+
+
+_MATERIAL_RANK = [(re.compile(r"\bnetherite\b", re.I), 4, "netherite"), (re.compile(r"\bdiamonds?\b", re.I), 3, "diamond"),
+                  (re.compile(r"\biron\b", re.I), 2, "iron"), (re.compile(r"\b(stone|copper|chainmail)\b", re.I), 1, "stone/copper")]
+
+
+_LIBRARY = re.compile(r"\b(lib|library|api|animator|config|core|framework)\b|lib$", re.I)
+_ROMAN = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5}
+
+
+def _mods_used_check(out: str) -> str:
+    """Every mod in the 'Mods used' section must be installed. Names are matched against display names AND jar
+    file names (25 Nov 2026: Soulscraft's display name is 'Tarnished Legacy'; its jar says soulscraft)."""
+    import difflib
+    mods = installed_mods()
+    if not mods or "(mod check:" in out:
+        return out
+    low = [n.lower() for n, _, _ in mods] + [re.sub(r"[-_]+", " ", j.lower()) for _, _, j in mods]
+    sec = re.search(r"(?:mods used|mods needed|required mods|mods? it uses)[^\n]*\n(.*?)(?=\n#|\n\s*\n\S[^-*\n]|\Z)",
+                    out, re.I | re.S)
+    if not sec:
+        return out
+    notes = []
+    for line in sec.group(1).splitlines():
+        m = re.match(r"\s*[-*\d.]+\s*\**([^*:\n(]+?)\**\s*[:(\-–]", line)
+        if not m:
+            continue
+        mod = m.group(1).strip().strip("*").strip()
+        ml = mod.lower().replace("'", "")
+        if _LIBRARY.search(mod):
+            notes.append(f"'{mod}' is a library; it adds no gameplay of its own")
+            continue
+        status = sheet_status(mod)
+        if status == "Dropped":
+            notes.append(f"'{mod}' is Dropped on the mod sheet; don't build around it")
+            continue
+        if any(ml in n.replace("'", "") or n in ml for n in low if len(n) >= 4) or difflib.get_close_matches(ml, low, 1, 0.85):
+            continue
+        if status and "(planned" in line.lower():
+            continue
+        if status:
+            notes.append(f"'{mod}' is on the mod sheet ({status}) but not installed yet; mark it '(planned)'")
+        else:
+            notes.append(f"'{mod}' is not an installed mod; use one from the pack or add it to the sheet first")
+    return out + ("\n\n" + "\n".join(f"(mod check: {n})" for n in notes) if notes else "")
+
+
+def _tier_check(out: str) -> str:
+    """Tiers must not go backwards (25 Nov 2026): an early tier can't use a better vanilla material than every
+    later tier, e.g. Tier 1 gear needing netherite when Tier 3 tops out at diamond."""
+    tiers = []                                       # (tier number, best rank, material name)
+    num = r"(\d+|I{1,3}|IV|V)"
+    for m in re.finditer(rf"\bTier\s*{num}\b(.*?)(?=\bTier\s*{num}\b|\n#|\Z)", out, re.S):
+        best = max(((r, n) for rx, r, n in _MATERIAL_RANK if rx.search(m.group(2))), default=(0, ""))
+        t = m.group(1)
+        tiers.append((int(t) if t.isdigit() else _ROMAN[t], *best))
+    seen, notes = {}, []
+    for num, rank, name in tiers:                     # a tier may be mentioned again in prose: keep the first
+        seen.setdefault(num, (rank, name))
+    order = sorted(seen.items())
+    for i, (num, (rank, name)) in enumerate(order):
+        later = [r for _, (r, _) in order[i + 1:]]
+        if later and rank > max(later):
+            notes.append(f"Tier {num} uses {name}, better than anything in the later tiers; "
+                         "move it later or raise the later tiers")
+    return out + ("\n\n" + "\n".join(f"(tier check: {n})" for n in notes) if notes else "")
+
+
+def _sheet_context() -> str:
+    """What the mod sheet says about mods that aren't plain 'installed': planned ones and dropped ones."""
+    rows = sheet_rows()
+    planned = [r["Mod"] for r in rows if r.get("Status") in ("Core", "Recommended")
+               and (r.get("In Cinema") or "").strip() == "No"]
+    dropped = [r["Mod"] for r in rows if r.get("Status") == "Dropped"]
+    out = ""
+    if planned:
+        out += "\n\nPLANNED, NOT INSTALLED YET (mention only as '(planned)'):\n" + ", ".join(planned)
+    if dropped:
+        out += "\n\nDROPPED (never use):\n" + ", ".join(dropped)
+    return out
+
+
+def gameplay_designer(state: TeamState) -> dict:
+    out = _ask(
+        "You are the Gameplay Designer. Design how the pack plays for the task: the hunting loop (track, fight, "
+        "carve, craft, upgrade), progression tiers, quests or bounties, loot and rewards, or the start of the "
+        "game, whichever the task asks. Write: 1) the loop as short numbered steps; 2) a tier table with columns "
+        "Tier | What you hunt | Gear you craft | Materials, rows labelled 'Tier 1', 'Tier 2', ...; 3) 'Mods used': "
+        "only mods in the PACK CHECK list, one line each saying what it does in the loop. Bold real item names "
+        "exactly as the game or the mod names them. An item the pack would have to add itself (with KubeJS) "
+        "goes in bold followed by '(custom)'. Follow the Lore section; no build specs, no code, no tips or "
+        "warnings section, no XP numbers the mods don't give. Library mods (names with Lib, API, Animator, "
+        "Config, Core) add no gameplay: never use them. In the loop, name only mods you list in 'Mods used'."
+        + _GROUNDED,
+        _context(state) + "\n\nINSTALLED MODS (the only mods you may use):\n" + ", ".join(sorted({n for n in installed_mod_names() if not _LIBRARY.search(n)}))
+        + _sheet_context(),
+        model=design_llm,
+    )
+    out = _tier_check(_math_check(_worker_check(out, state)))
+    return {"gameplay": out, "history": ["gameplay_designer: designed"]}
 
 
 def _research_calls(state: TeamState) -> int:
@@ -696,6 +986,10 @@ def _worker_check(out: str, state: TeamState) -> str:
     out = _range_check(out)
     out = _math_check(out)
     out = _check_blocks(out)
+    out = _check_items(out)                       # 25 Nov: shared by every agent, not just the new ones
+    out = _mods_used_check(out)
+    out = _lore_check(out)                        # no-op on projects without canon names
+    out = _look_check(out)
     out = _label_new_parts(out, evidence)
     return _label_tips(out, evidence)
 
@@ -753,6 +1047,8 @@ def _num(n: float) -> str:
 # Mistakes the 8B model has made before, with the correction shown next to them (10 Nov 2026).
 # Add a line here whenever a report gets a Create fact wrong. Each pattern is checked per clause.
 KNOWN_MISTAKES = [
+    (r"\biron bars?\b[^.\n]{0,40}\b(ladder|climb\w*)|\bladder\b[^.\n]{0,30}\biron bars?\b",
+     "iron bars can't be climbed; use the Ladder block (or scaffolding, or vines)"),     # 25 Nov 2026
     (r"\b(blue ice|packed ice|ice|snow(?: blocks?)?)\b[^.\n]{0,60}?\b(emit|emits|emitting|give off|gives off|glow|glows|"
      r"glowing|cast|casts|produce|produces|radiat\w*)\b[^.\n]{0,30}\blight",
      "ice and snow give off no light; for cold light use soul lanterns, sea lanterns, or glowstone behind blue "

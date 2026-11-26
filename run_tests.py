@@ -301,7 +301,7 @@ def _():
     finally:
         agents.router_llm = old_router
     line = [ln for ln in seen["user"].splitlines() if ln.startswith("Agents you may pick now:")][0]
-    assert "developer" not in line and "architect" in line and "FINISH" in line, line
+    assert "developer" not in line and "architect" not in line and "researcher" in line and "FINISH" in line, line
 
 
 # ---------------------------------------------------------------- projects (25 Nov 2026)
@@ -594,11 +594,11 @@ def _():
     old, rt._get_json = rt._get_json, fake
     restore = _with_project("rpg")
     try:
-        out = rt.search_modrinth("Saint's Dragons NeoForge 1.21.1 Pinned mods")
+        out = rt.search_modrinth("Saint's Dragons NeoForge 1.21.1 boss mods")
     finally:
         restore()
         rt._get_json = old
-    assert calls[0] == "Saint's Dragons Pinned" and "Saint's Dragons" in calls, calls
+    assert calls[0] == "Saint's Dragons boss" and "Saint's Dragons" in calls, calls
     assert out.startswith("NO neoforge 1.21.1 build found for 'Saint's Dragons'"), out
 
 
@@ -982,6 +982,394 @@ def _():
     out = agents._known_mistakes("- Place Blue Ice on the outer wall to emit cold blue light.\n- Lanterns give warm light.")
     assert "(correction: ice and snow give off no light" in out and out.count("(correction:") == 1, out
 
+
+
+@check("lore check: near-miss names and a wrong cause for Dahaad's fall are flagged; canon text passes")
+def _():
+    restore = _with_project("rpg")
+    try:
+        bad = agents._lore_check("The road to Selhaaven was long.\n\nThe kingdom of Dahaad fell to war and fire.")
+        assert "(lore check: 'Selhaaven' looks like a misspelling of 'Selhaven')" in bad, bad
+        assert "fell to something other than the frost" in bad, bad
+        old_kb = agents.known_block_names
+        agents.known_block_names = lambda: {"deepslate", "polished deepslate"}
+        try:
+            assert "(lore check:" not in agents._lore_check("Walls of Deepslate rise over the ruins.")
+        finally:
+            agents.known_block_names = old_kb
+        good = "The frost came down on Dahaad and the kingdom fell. Selhaven kept its fires. Page 1"
+        assert agents._lore_check(good) == good, agents._lore_check(good)
+        long = agents._lore_check("**Page 1**\n" + "The frost came. " * 30 + "\n\n**Page 2**\nShort.")
+        assert "(lore check: Page 1 is 479 characters" in long and "Page 2 is" not in long, long
+    finally:
+        restore()
+    assert agents._lore_check("Selhaaven fell to war") == "Selhaaven fell to war"  # fort_redux: no canon, no check
+
+
+@check("lore writer: rpg only, lore tasks bring it in, and its output goes through the lore check")
+def _():
+    restore = _with_project("rpg")
+    try:
+        assert "lore_writer" in config.WORKERS
+        assert agents._WANTS[4][0] == "lore_writer" and agents._WANTS[4][2].search("Write the king's last journal")
+        old_ask, old_names = agents._ask, agents.known_block_names
+        agents._ask = lambda *a, **k: "Page 1\nThe ice took Dahaad. I write from Selhavn."
+        agents.known_block_names = lambda: set()
+        try:
+            out = agents.lore_writer({"task": "journal", "history": []})
+        finally:
+            agents._ask, agents.known_block_names = old_ask, old_names
+        assert out["history"] == ["lore_writer: written"] and "misspelling of 'Selhaven'" in out["lore"], out
+    finally:
+        restore()
+    restore = _with_project("fort_redux")
+    try:
+        assert "lore_writer" not in config.WORKERS
+    finally:
+        restore()
+
+
+@check("tier check: an early tier using better material than every later tier is flagged; a rising ladder passes")
+def _():
+    bad = agents._tier_check("| Tier 1 | wolves | netherite sword | hide |\n| Tier 2 | bears | diamond axe | fang |")
+    assert "(tier check: Tier 1 uses netherite, better than anything in the later tiers" in bad, bad
+    good = "| Tier 1 | wolves | stone spear | hide |\n| Tier 2 | bears | iron axe |\n| Tier 3 | wyverns | diamond |"
+    assert agents._tier_check(good) == good
+
+
+@check("item check: unknown bold items are flagged, real and '(custom)' ones pass")
+def _():
+    old = agents.known_block_names
+    agents.known_block_names = lambda: {"iron sword", "leather boots"}
+    old_mods = agents.installed_mod_names
+    agents.installed_mod_names = lambda: ["Fantasy Armor"]
+    try:
+        out = agents._check_items("**Iron Sword**, **Frost Fang Sword**, **Dahaad Scale** (custom), **Leather Boots**, "
+                                  "**Fantasy Armor**")
+    finally:
+        agents.known_block_names, agents.installed_mod_names = old, old_mods
+    assert out.count("(not a known item - check)") == 1 and "**Frost Fang Sword** (not a known item" in out, out
+
+
+@check("gameplay designer: rpg only, runs after the Pack Engineer, output goes through tier and lore checks")
+def _():
+    restore = _with_project("rpg")
+    try:
+        task = "Design the first three hunting tiers"
+        assert agents._still_needed({"task": task, "history": []}) == "pack_engineer"
+        assert agents._still_needed({"task": "Design the trophy hall", "history": []}) == "designer"
+        assert not agents._allowed({"task": task, "history": []}, "gameplay_designer")
+        hist = ["pack_engineer: checked"]
+        assert agents._still_needed({"task": task, "history": hist}) == "gameplay_designer"
+        old_ask, old_names = agents._ask, agents.known_block_names
+        agents._ask = lambda *a, **k: "| Tier 1 | netherite |\n| Tier 2 | iron |\nThe war ended Dahaad. Selhavn."
+        agents.known_block_names = lambda: set()
+        try:
+            out = agents.gameplay_designer({"task": task, "history": hist})
+        finally:
+            agents._ask, agents.known_block_names = old_ask, old_names
+        g = out["gameplay"]
+        assert out["history"] == ["gameplay_designer: designed"] and "(tier check:" in g and "(lore check:" in g, g
+    finally:
+        restore()
+    restore = _with_project("fort_redux")
+    try:
+        assert not agents._allowed({"task": "quest rewards", "history": ["pack_engineer: checked"]}, "gameplay_designer")
+    finally:
+        restore()
+
+
+@check("tier check reads roman numerals; mods-used check flags mods that aren't installed")
+def _():
+    bad = agents._tier_check("| **Tier I** | netherite blade |\n| **Tier II** | iron |")
+    assert "(tier check: Tier 1 uses netherite" in bad, bad
+    old = agents.installed_mods
+    agents.installed_mods = lambda: [("Reliquified Artifacts", "1", "reliquified_artifacts.jar"),
+                                     ("Iron's Spells 'n Spellbooks", "1", "irons_spellbooks.jar"),
+                                     ("Waystones", "1", "waystones.jar"),
+                                     ("Tarnished Legacy", "1", "soulscraft_tarnished_legacy-1.21.1.jar")]
+    try:
+        out = agents._mods_used_check("## Mods used\n- **Iron's Spells 'n Spellbooks**: spells\n"
+                                      "- **Soulscraft**: daggers\n- Waystones: travel\n- **Resourceful Lib**: crafting\n"
+                                      "- **Frostcraft**: made up\n")
+    finally:
+        agents.installed_mods = old
+    assert out.count("(mod check:") == 2 and "'Frostcraft' is not an installed mod" in out, out
+    assert "Soulscraft" not in out.split("(mod check:", 1)[1], out
+    assert "'Resourceful Lib' is a library" in out, out
+
+
+@check("'gameplay only' keeps the team to the Pack Engineer and Gameplay Designer; a blocked pick goes there")
+def _():
+    restore = _with_project("rpg")
+    try:
+        st = {"task": "Gameplay only. Design the first tiers", "history": []}
+        assert not agents._allowed(st, "architect") and not agents._allowed(st, "lore_writer")
+        assert agents._allowed(st, "pack_engineer")
+    finally:
+        restore()
+
+
+@check("dependency check: a mod loaded through a bridge (Voxy via Roxy) isn't flagged for its Fabric needs")
+def _():
+    import research_tools as rt
+    old = rt._mod_records
+    recs = [{"id": "voxy", "name": "Voxy", "version": "0.2.16", "jar": "voxy.jar",
+             "deps": [("fabric-api", ">=0.91.1", True)]},
+            {"id": "roxy", "name": "Roxy", "version": "0.4", "jar": "roxy.jar", "deps": []}]
+    rt._mod_records = lambda: recs
+    try:
+        whole = rt.dependency_report("check the pack")
+        named = rt.dependency_report("is Voxy ok?")
+        rt._mod_records = lambda: recs[:1]
+        alone = rt.dependency_report("check the pack")
+    finally:
+        rt._mod_records = old
+    assert "Problems: none" in whole and "loaded through Roxy" in named, (whole, named)
+    assert "fabric-api" in alone and "Problems: 1" in alone, alone
+
+
+@check("sheet snapshot: statuses are read, Dropped and planned mods get their own notes in the mods check")
+def _():
+    import tempfile, research_tools as rt
+    restore = _with_project("rpg")
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8")
+    tmp.write("Mod,Status,In Cinema\nEpic Fight,Dropped,No\nWild Hunt,Recommended,No\nWaystones,Recommended,Yes\n")
+    tmp.close()
+    old_file, old_mods = config.SHEET_FILE, agents.installed_mods
+    config.SHEET_FILE = tmp.name
+    agents.installed_mods = lambda: [("Waystones", "1", "waystones.jar")]
+    try:
+        assert rt.sheet_status("Wild Hunt") == "Recommended" and rt.sheet_status("Frostcraft") == ""
+        out = agents._mods_used_check("## Mods used\n- **Epic Fight**: combat\n- **Wild Hunt**: hunts\n"
+                                      "- **Wild Hunt** (planned): contracts\n- **Waystones**: travel\n")
+        assert "'Epic Fight' is Dropped on the mod sheet" in out, out
+        assert out.count("'Wild Hunt' is on the mod sheet (Recommended) but not installed yet") == 1, out
+        summary = agents._pack_summary("Problems: none")
+        assert "1 Core/Recommended mods aren't in the pack yet: Wild Hunt" in summary, summary
+    finally:
+        config.SHEET_FILE, agents.installed_mods = old_file, old_mods
+        os.unlink(tmp.name)
+        restore()
+
+
+@check("dependency check: 'fabric-api' is satisfied by Forgified Fabric API's 'fabric_api'")
+def _():
+    import research_tools as rt
+    old = rt._mod_records
+    rt._mod_records = lambda: [{"id": "somefabricmod", "name": "Some Mod", "version": "1", "jar": "x.jar",
+                                "deps": [("fabric-api", ">=0.91.1", True)]},
+                               {"id": "fabric_api", "name": "Forgified Fabric API", "version": "0.116.15", "jar": "f.jar",
+                                "deps": []}]
+    try:
+        out = rt.dependency_report("check the pack")
+    finally:
+        rt._mod_records = old
+    assert "Problems: none" in out, out
+
+
+@check("routing: lore writer and gameplay designer only join tasks that ask for them")
+def _():
+    restore = _with_project("rpg")
+    try:
+        build = {"task": "Plan and design the trophy hall", "history": ["pack_engineer: checked"]}
+        assert not agents._allowed(build, "lore_writer") and not agents._allowed(build, "gameplay_designer")
+        assert agents._allowed({"task": "Write the legend of the crest", "history": []}, "lore_writer")
+    finally:
+        restore()
+
+
+@check("shared checks: a Designer's output gets the lore check too (not just the Lore Writer's)")
+def _():
+    restore = _with_project("rpg")
+    old_ask, old_names = agents._ask, agents.known_block_names
+    agents._ask = lambda *a, **k: "The hall honours Selhaaven's founders."
+    agents.known_block_names = lambda: set()
+    try:
+        out = agents.designer({"task": "Design the hall", "history": []})
+    finally:
+        agents._ask, agents.known_block_names = old_ask, old_names
+        restore()
+    assert "misspelling of 'Selhaven'" in out["design"], out
+
+
+@check("routing: no architect on one-part tasks; fallback finishes instead of padding with architect/designer")
+def _():
+    assert not agents._allowed({"task": "Design only, no code. Describe the hall", "history": []}, "architect")
+    assert agents._allowed({"task": "Plan and design only, no code.", "history": []}, "architect")
+    st = {"task": "Review only, no code. Is the press ok?", "research": "something", "history": ["researcher: looked up x"]}
+    assert agents._fallback_route(st).next == "FINISH"
+    assert agents._fallback_route({"task": "Help with the base", "history": []}).next == "architect"
+
+
+@check("look check: obsidian in an RPG output is flagged once; Fort Redux keeps its obsidian")
+def _():
+    restore = _with_project("rpg")
+    try:
+        out = agents._look_check("A frame of obsidian and blue ice. More obsidian.")
+        assert out.count("(look check: obsidian is the Fort Redux look") == 1, out
+        assert agents._look_check(out) == out
+    finally:
+        restore()
+    restore = _with_project("fort_redux")
+    try:
+        assert agents._look_check("obsidian core") == "obsidian core"
+    finally:
+        restore()
+
+
+@check("hollow check: a one-block-thick 5x5 tower laid 25 blocks a layer is flagged (the ring is 16)")
+def _():
+    task = "a square tower 5 blocks wide, 5 deep and 10 tall, one block thick"
+    bad = agents._hollow_check("1. Base layer: place 25 deepslate bricks.", task)
+    assert "(math check: a one-block-thick 5 x 5 wall is 16 blocks per layer" in bad, bad
+    assert agents._hollow_check("1. Place 16 bricks in a ring.", task) == "1. Place 16 bricks in a ring."
+    assert "(math check:" in agents._hollow_check("2. Add another 5x5 deepslate bricks on top.", task)
+    assert agents._hollow_check("Tower | 5 x 5 x 10 | bricks", task) == "Tower | 5 x 5 x 10 | bricks"
+    assert agents._hollow_check("Place 25 bricks.", "a solid 5x5 platform") == "Place 25 bricks."
+
+
+@check("block estimates read '- Part | 5 x 5 x 10 | ...' rows too; 'build spec only' keeps the designer out")
+def _():
+    est = agents._block_estimates("**Part | Size | Blocks**\n- Tower | 5 x 5 x 10 | Deepslate Bricks\n")
+    assert "Tower (5 x 5 x 10): walls 160 blocks" in est, est
+    est = agents._block_estimates("**Part | Size (W x D x H blocks) | Main blocks**\n---|---|---\nLookout Tower | 5 x 5 x 10 | x\n")
+    assert "Lookout Tower (5 x 5 x 10)" in est and "Part (" not in est, est
+    assert not agents._allowed({"task": "Build spec only, no code.", "history": []}, "designer")
+    assert agents._allowed({"task": "Plan and design only, no code.", "history": []}, "designer")
+
+
+@check("known mistakes: iron bars as a ladder get a correction; ladder rows get no wall estimate")
+def _():
+    out = agents._known_mistakes("- Place Iron Bars vertically inside the tower forming a ladder structure.")
+    assert "(correction: iron bars can't be climbed" in out, out
+    est = agents._block_estimates("| Tower | 5 x 5 x 10 | bricks |\n| Ladder | 1 x 1 x 10 | ladder |")
+    assert "Tower (5 x 5 x 10)" in est and "Ladder (" not in est, est
+
+
+@check("context: sheet statuses of mods the task names reach every agent; query cleaner drops filler words")
+def _():
+    import tempfile, research_tools as rt
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8")
+    tmp.write("Mod,Status,In Cinema\nWild Hunt,Recommended,No\nEpic Fight,Dropped,No\n")
+    tmp.close()
+    old = config.SHEET_FILE
+    config.SHEET_FILE = tmp.name
+    try:
+        ctx = agents._sheet_for_task("Does Wild Hunt have a NeoForge build?")
+        assert "- Wild Hunt: Recommended on the sheet, NOT installed yet" in ctx and "Epic Fight" not in ctx, ctx
+        assert agents._sheet_for_task("Design the hall") == ""
+    finally:
+        config.SHEET_FILE = old
+        os.unlink(tmp.name)
+    assert rt._modrinth_query("Wild Hunt NeoForge 1.21.1 build and dependencies") == "Wild Hunt"
+    assert rt._modrinth_query("Dungeons and Taverns compatibility") == "Dungeons and Taverns"
+
+
+@check("crash reader: names the mod that failed and whose code it's missing; ignores optional-hook warnings")
+def _():
+    import tempfile, research_tools as rt
+    inst = tempfile.mkdtemp()
+    for d in ("crash-reports", "logs", "mods"):
+        os.makedirs(os.path.join(inst, d))
+    log = ("[22:51:56] [main/WARN]: Error loading class: mekanism/client/render/RenderFlame "
+           "(java.lang.ClassNotFoundException: mekanism.client.render.RenderFlame)\n"
+           "[22:52:07] [modloading-worker-0/ERROR] [FMLModContainer/LOADING]: Failed to register automatic "
+           "subscribers. ModID: morerelics\njava.lang.NoClassDefFoundError: it/hurts/sskirillss/relics/cast/CastType\n")
+    open(os.path.join(inst, "crash-reports", "crash-1-client.txt"), "w").write("Description: Unexpected error\n")
+    open(os.path.join(inst, "logs", "latest.log"), "w").write(log)
+    old_dir, old_recs = config.MODPACK_DIR, rt._mod_records
+    config.MODPACK_DIR = inst
+    rt._mod_records = lambda: [{"id": "relics"}, {"id": "morerelics"}]
+    try:
+        out = rt.crash_report()
+        summary = agents._pack_summary("Problems: none\n" + out)
+    finally:
+        config.MODPACK_DIR, rt._mod_records = old_dir, old_recs
+    assert "- mod 'morerelics' failed to load" in out and "belongs to 'relics'" in out, out
+    assert "mekanism" not in out, out
+    assert "'morerelics' failed to load because it needs code that your installed 'relics' doesn't have" in summary
+    assert "Nothing to change" not in summary, summary
+
+
+@check("mod index: libraries bundled inside jars (META-INF/jarjar) count as installed")
+def _():
+    import io, tempfile, zipfile, research_tools as rt
+    inst = tempfile.mkdtemp()
+    os.makedirs(os.path.join(inst, "mods"))
+    inner = io.BytesIO()
+    with zipfile.ZipFile(inner, "w") as zi:
+        zi.writestr("META-INF/neoforge.mods.toml", '[[mods]]\nmodId="punchy_expressions"\nversion="1.0.9"\n')
+    with zipfile.ZipFile(os.path.join(inst, "mods", "punchy-moves.jar"), "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", '[[mods]]\nmodId="punchy_moves"\nversion="1.0.9b"\n'
+                   '[[dependencies.punchy_moves]]\nmodId="punchy_expressions"\ntype="required"\nversionRange="[1.0.3,)"\n')
+        z.writestr("META-INF/jarjar/punchy-expressions-1.0.9.jar", inner.getvalue())
+    old_dir, old_cache, old_idx = config.MODPACK_DIR, rt.CACHE_DIR, rt._MOD_INDEX
+    config.MODPACK_DIR, rt.CACHE_DIR, rt._MOD_INDEX = inst, tempfile.mkdtemp(), None
+    try:
+        out = rt.dependency_report("check the pack")
+    finally:
+        config.MODPACK_DIR, rt.CACHE_DIR, rt._MOD_INDEX = old_dir, old_cache, old_idx
+    assert "Problems: none" in out, out
+
+
+@check("mod index: bundled jars listed in jarjar/metadata.json are read; the newest copy of a mod wins")
+def _():
+    import io, json as js, tempfile, zipfile, research_tools as rt
+    inst = tempfile.mkdtemp()
+    os.makedirs(os.path.join(inst, "mods"))
+
+    def jar(toml):
+        b = io.BytesIO()
+        with zipfile.ZipFile(b, "w") as zi:
+            zi.writestr("META-INF/neoforge.mods.toml", toml)
+        return b.getvalue()
+    with zipfile.ZipFile(os.path.join(inst, "mods", "aaa-bundles-old-arch.jar"), "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", '[[mods]]\nmodId="aaa"\nversion="1"\n')
+        z.writestr("META-INF/jarjar/arch-13.0.8.jar", jar('[[mods]]\nmodId="architectury"\nversion="13.0.8"\n'))
+    with zipfile.ZipFile(os.path.join(inst, "mods", "architectury-13.0.12.jar"), "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", '[[mods]]\nmodId="architectury"\nversion="13.0.12"\n')
+    with zipfile.ZipFile(os.path.join(inst, "mods", "lambdynamiclights.jar"), "w") as z:
+        z.writestr("META-INF/neoforge.mods.toml", '[[mods]]\nmodId="lambdynlights"\nversion="4.8.11"\n'
+                   '[[dependencies.lambdynlights]]\nmodId="lambdynlights_runtime"\ntype="required"\nversionRange="[4.8.11,)"\n'
+                   '[[dependencies.lambdynlights]]\nmodId="architectury"\ntype="required"\nversionRange="[13.0.11,)"\n')
+        z.writestr("META-INF/jarjar/metadata.json", js.dumps({"jars": [{"path": "META-INF/jars/runtime.jar"}]}))
+        z.writestr("META-INF/jars/runtime.jar", jar('[[mods]]\nmodId="lambdynlights_runtime"\nversion="4.8.11"\n'))
+    old_dir, old_cache, old_idx = config.MODPACK_DIR, rt.CACHE_DIR, rt._MOD_INDEX
+    config.MODPACK_DIR, rt.CACHE_DIR, rt._MOD_INDEX = inst, tempfile.mkdtemp(), None
+    try:
+        out = rt.dependency_report("check the pack")
+    finally:
+        config.MODPACK_DIR, rt.CACHE_DIR, rt._MOD_INDEX = old_dir, old_cache, old_idx
+    assert "Problems: none" in out, out
+
+
+@check("versions: alpha < beta < rc < release, and plain versions still compare as before")
+def _():
+    import research_tools as rt
+    assert rt.version_in_range("1.0.0-beta.1+1.21.1", "[1.0.0-alpha.13+1.21.1,)") is True
+    assert rt.version_in_range("1.0.0-alpha.2", "[1.0.0-beta.1,)") is False
+    assert rt.version_in_range("1.0.0", "[1.0.0-rc.1,)") is True
+    assert rt.version_in_range("6.0.8", "[6.0.7,6.1.0)") is True and rt.version_in_range("13.0.8", "[13.0.11,)") is False
+
+
+@check("crash reader: a clean log newer than the crash report says the crash is fixed")
+def _():
+    import tempfile, time, research_tools as rt
+    inst = tempfile.mkdtemp()
+    for d in ("crash-reports", "logs", "mods"):
+        os.makedirs(os.path.join(inst, d))
+    crash = os.path.join(inst, "crash-reports", "crash-old-client.txt")
+    open(crash, "w").write("Caused by: java.lang.IllegalStateException: boom\n")
+    os.utime(crash, (time.time() - 3600, time.time() - 3600))
+    open(os.path.join(inst, "logs", "latest.log"), "w").write("[INFO] all good\n")
+    old_dir, old_recs = config.MODPACK_DIR, rt._mod_records
+    config.MODPACK_DIR, rt._mod_records = inst, lambda: []
+    try:
+        out = rt.crash_report()
+    finally:
+        config.MODPACK_DIR, rt._mod_records = old_dir, old_recs
+    assert "no load errors" in out and "so that crash is fixed" in out, out
 
 passed = sum(results)
 print(f"\n{passed}/{len(results)} checks passed" + ("" if passed == len(results) else "  <-- something is broken"))

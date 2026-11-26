@@ -1,270 +1,424 @@
 {
-  "_about": "Tasks with known answers. Run one after any change to the team (run_benchmark tool) and compare. Each 'contains' entry is a list of alternatives: the report must include at least one of them (case-insensitive). 'not_contains': none of these may appear. Add a benchmark whenever a report gets something wrong.",
-  "rpg_relics": {
-    "project": "rpg",
-    "task": "Review only, no code. Check the installed versions of Relics, More Relics, Reliquified Artifacts and Reliquified L_Ender's Cataclysm in the Cinema instance and say whether they look compatible with each other (Relics add-ons must be built for Relics 0.12). Quote the exact jar file names you find. If a mod isn't installed, say 'not installed'. Do not suggest new mods.",
-    "contains": [
-      [
-        "Project: Cinematic RPG modpack"
-      ],
-      [
-        "0.12.11"
-      ],
-      [
-        "morerelics-1.8.0-1.21.1.jar"
-      ],
-      [
-        "reliquified_artifacts-1.21.1-1.0.9.jar"
-      ]
-    ],
-    "not_contains": [
-      "obsidian",
-      "TACZ",
-      "Create Big Cannons",
-      "vscarmor"
-    ]
-  },
-  "rpg_pinned": {
-    "project": "rpg",
-    "task": "Review only, no code. Does Saint's Dragons have a NeoForge 1.21.1 build? Answer yes or no, and say whether it should stay Pinned. Do not suggest other mods.",
-    "contains": [
-      [
-        "Project: Cinematic RPG modpack"
-      ],
-      [
-        "no build",
-        "no neoforge 1.21.1 build",
-        "no 1.21.1",
-        "not available for neoforge",
-        "does not have a neoforge",
-        "doesn't have a neoforge",
-        "only 1.20.1",
-        "1.20.1 only",
-        "answer: no",
-        "- no"
-      ],
-      [
-        "pinned"
-      ]
-    ],
-    "not_contains": [
-      "obsidian",
-      "TACZ",
-      "not found in modrinth"
-    ]
-  },
-  "fort_works_hall": {
-    "project": "fort_redux",
-    "task": "Works Hall power review only (no code): the Works Hall runs one Mechanical Press, one Mechanical Mixer and both Encased Fan lines (washing and smelting) off the mill's water wheels. Is the water-wheel power enough, what RPM should each machine run at, and what gotchas should we watch for?",
-    "contains": [
-      [
-        "Project: Fort Redux"
-      ],
-      [
-        "STRESS CALCULATOR"
-      ],
-      [
-        "1,024 SU",
-        "1024 SU"
-      ]
-    ],
-    "not_contains": [
-      "Cinematic RPG",
-      "NeoForge 1.21.1",
-      "Dahaad"
-    ]
-  },
-  "rpg_trophy_hall": {
-    "project": "rpg",
-    "task": "Design only, no code, no research needed. Describe the look of the Frost Keep's trophy hall (where Ian displays carved horns, scales and skulls from his hunts): layout, materials and lighting. Follow the project's look rules and use only vanilla blocks. Keep it under 300 words.",
-    "contains": [
-      [
-        "Project: Cinematic RPG modpack"
-      ],
-      [
-        "designer: design written"
-      ],
-      [
-        "lantern",
-        "candle",
-        "campfire"
-      ],
-      [
-        "spruce",
-        "dark oak",
-        "deepslate",
-        "stone brick",
-        "stone bricks"
-      ]
-    ],
-    "not_contains": [
-      "obsidian",
-      "vscarmor",
-      "panzergrau",
-      "sentry",
-      "sentries",
-      "TACZ",
-      "Mechanical Press",
-      "Create mod",
-      "(not a known block"
-    ]
-  },
-  "rpg_frost_keep_spec": {
-    "project": "rpg",
-    "task": "Plan and design only, no code. Write a short build spec for the Frost Keep base: a stone watchtower on a rock island where a river meets a frozen bay, with a wooden cabin on top. Keep exactly these rooms: quarters in the top cabin, a map room, a smithy, a trophy hall, a Waystone in the courtyard, and a dock with a walkway to shore. Give rough sizes in blocks and the materials for each room. Use only vanilla blocks plus Waystones.",
-    "contains": [
-      [
-        "Project: Cinematic RPG modpack"
-      ],
-      [
-        "architect: plan written"
-      ],
-      [
-        "designer: design written"
-      ],
-      [
-        "master_builder: spec written"
-      ],
-      [
-        "smithy"
-      ],
-      [
-        "trophy"
-      ],
-      [
-        "waystone"
-      ],
-      [
-        "dock"
-      ],
-      [
-        "map room"
-      ]
-    ],
-    "not_contains": [
-      "vscarmor",
-      "panzergrau",
-      "sentry",
-      "sentries",
-      "TACZ",
-      "Mechanical Press",
-      "undercroft",
-      "copycat"
-    ]
-  },
-  "fort_dev_tellraw": {
-    "project": "fort_redux",
-    "task": "Code only, no research needed. Write one datapack function file data/zombiebase/functions/cw_hello.mcfunction for Minecraft 1.20.1 that shows the chat message 'Calamity Watch online' to all players in red using tellraw. Use # for comments, never //.",
-    "contains": [
-      [
-        "Project: Fort Redux"
-      ],
-      [
-        "developer: code written"
-      ],
-      [
-        "tellraw @a",
-        "execute as @a run tellraw @s"
-      ],
-      [
-        "Calamity Watch online"
-      ],
-      [
-        "\"red\"",
-        "'red'",
-        "color\":\"red",
-        "color\": \"red"
-      ]
-    ],
-    "not_contains": [
-      "NeoForge 1.21.1",
-      "Dahaad",
-      "// "
-    ]
-  },
-  "rpg_pack_relics": {
-    "project": "rpg",
-    "task": "Review only, no code. Do Relics, Reliquified Artifacts and Reliquified L_Ender's Cataclysm have all their required mods installed at compatible versions?",
-    "contains": [
-      [
-        "Project: Cinematic RPG modpack"
-      ],
-      [
-        "pack_engineer: checked"
-      ],
-      [
-        "## DEPENDENCY CHECK"
-      ],
-      [
-        "reliquified_artifacts-1.21.1-1.0.9.jar"
-      ],
-      [
-        "Problems:"
-      ]
-    ],
-    "not_contains": [
-      "obsidian",
-      "TACZ",
-      "Create Big Cannons"
-    ]
-  },
-  "fort_pack_cbc": {
-    "project": "fort_redux",
-    "task": "Review only, no code. Does Create Big Cannons have all its required mods installed at compatible versions?",
-    "contains": [
-      [
-        "Project: Fort Redux"
-      ],
-      [
-        "pack_engineer: checked"
-      ],
-      [
-        "## DEPENDENCY CHECK"
-      ],
-      [
-        "Create Big Cannons",
-        "createbigcannons"
-      ],
-      [
-        "Problems:"
-      ],
-      [
-        "- No problems"
-      ]
-    ],
-    "not_contains": [
-      "Cinematic RPG",
-      "Dahaad",
-      "NeoForge 1.21.1",
-      "Downgrade Create to"
-    ],
-    "_note": "Create 6.0.8 is inside [6.0.7,6.1.0): any downgrade advice is wrong (25 Nov run)."
-  },
-  "rpg_master_builder": {
-    "project": "rpg",
-    "task": "Build spec only, no code, no research needed. Write a build spec for the ruined 'stump' watchtower: a ring of stone brick wall 9 blocks wide, 9 deep and 8 tall, one block thick, with a lone archway standing in it and snow drifted inside. Include a size table and layer-by-layer steps, and any terrain shaping around it.",
-    "contains": [
-      [
-        "Project: Cinematic RPG modpack"
-      ],
-      [
-        "master_builder: spec written"
-      ],
-      [
-        "## BLOCK ESTIMATES"
-      ],
-      [
-        "9 x 9 x 8"
-      ],
-      [
-        "stone brick"
-      ]
-    ],
-    "not_contains": [
-      "obsidian",
-      "vscarmor",
-      "sentry",
-      "(not a known block"
-    ]
-  }
+ "_about": "Tasks with known answers. Run one after any change to the team (run_benchmark tool) and compare. Each 'contains' entry is a list of alternatives: the report must include at least one of them (case-insensitive). 'not_contains': none of these may appear. Add a benchmark whenever a report gets something wrong.",
+ "rpg_relics": {
+  "project": "rpg",
+  "task": "Review only, no code. Check the installed versions of Relics, More Relics, Reliquified Artifacts and Reliquified L_Ender's Cataclysm in the Cinema instance and say whether they look compatible with each other (Relics add-ons must be built for Relics 0.12). Quote the exact jar file names you find. If a mod isn't installed, say 'not installed'. Do not suggest new mods.",
+  "contains": [
+   [
+    "Project: Cinematic RPG modpack"
+   ],
+   [
+    "0.12.11"
+   ],
+   [
+    "morerelics-1.7.7-forRelics-0.12.8-1.0-1.21.1.jar",
+    "morerelics-1.7.7"
+   ],
+   [
+    "reliquified_artifacts-1.21.1-1.0.9.jar"
+   ]
+  ],
+  "not_contains": [
+   "obsidian",
+   "TACZ",
+   "Create Big Cannons",
+   "vscarmor",
+   "morerelics-1.8.0"
+  ]
+ },
+ "rpg_pinned": {
+  "project": "rpg",
+  "task": "Review only, no code. Does Saint's Dragons have a NeoForge 1.21.1 build? Answer yes or no, and say whether it should stay Pinned. Do not suggest other mods.",
+  "contains": [
+   [
+    "Project: Cinematic RPG modpack"
+   ],
+   [
+    "no build",
+    "no neoforge 1.21.1 build",
+    "no 1.21.1",
+    "not available for neoforge",
+    "does not have a neoforge",
+    "doesn't have a neoforge",
+    "only 1.20.1",
+    "1.20.1 only",
+    "answer: no",
+    "- no",
+    "\nno ",
+    "\nno\n",
+    "\n- no",
+    "**no**"
+   ],
+   [
+    "pinned"
+   ]
+  ],
+  "not_contains": [
+   "obsidian",
+   "TACZ",
+   "not found in modrinth"
+  ]
+ },
+ "fort_works_hall": {
+  "project": "fort_redux",
+  "task": "Works Hall power review only (no code): the Works Hall runs one Mechanical Press, one Mechanical Mixer and both Encased Fan lines (washing and smelting) off the mill's water wheels. Is the water-wheel power enough, what RPM should each machine run at, and what gotchas should we watch for?",
+  "contains": [
+   [
+    "Project: Fort Redux"
+   ],
+   [
+    "STRESS CALCULATOR"
+   ],
+   [
+    "1,024 SU",
+    "1024 SU"
+   ]
+  ],
+  "not_contains": [
+   "Cinematic RPG",
+   "NeoForge 1.21.1",
+   "Dahaad"
+  ]
+ },
+ "rpg_trophy_hall": {
+  "project": "rpg",
+  "task": "Design only, no code, no research needed. Describe the look of the Frost Keep's trophy hall (where Ian displays carved horns, scales and skulls from his hunts): layout, materials and lighting. Follow the project's look rules and use only vanilla blocks. Keep it under 300 words.",
+  "contains": [
+   [
+    "Project: Cinematic RPG modpack"
+   ],
+   [
+    "designer: design written"
+   ],
+   [
+    "lantern",
+    "candle",
+    "campfire"
+   ],
+   [
+    "spruce",
+    "dark oak",
+    "deepslate",
+    "stone brick",
+    "stone bricks",
+    "blackstone",
+    "basalt",
+    "tuff"
+   ]
+  ],
+  "not_contains": [
+   "obsidian",
+   "vscarmor",
+   "panzergrau",
+   "sentry",
+   "sentries",
+   "TACZ",
+   "Mechanical Press",
+   "Create mod",
+   "(not a known block",
+   "architect: plan written",
+   "lore_writer:"
+  ]
+ },
+ "rpg_frost_keep_spec": {
+  "project": "rpg",
+  "task": "Plan and design only, no code. Write a short build spec for the Frost Keep base: a stone watchtower on a rock island where a river meets a frozen bay, with a wooden cabin on top. Keep exactly these rooms: quarters in the top cabin, a map room, a smithy, a trophy hall, a Waystone in the courtyard, and a dock with a walkway to shore. Give rough sizes in blocks and the materials for each room. Use only vanilla blocks plus Waystones.",
+  "contains": [
+   [
+    "Project: Cinematic RPG modpack"
+   ],
+   [
+    "architect: plan written"
+   ],
+   [
+    "designer: design written"
+   ],
+   [
+    "master_builder: spec written"
+   ],
+   [
+    "smithy"
+   ],
+   [
+    "trophy"
+   ],
+   [
+    "waystone"
+   ],
+   [
+    "dock"
+   ],
+   [
+    "map room"
+   ]
+  ],
+  "not_contains": [
+   "vscarmor",
+   "panzergrau",
+   "sentry",
+   "sentries",
+   "TACZ",
+   "Mechanical Press",
+   "undercroft",
+   "copycat"
+  ]
+ },
+ "fort_dev_tellraw": {
+  "project": "fort_redux",
+  "task": "Code only, no research needed. Write one datapack function file data/zombiebase/functions/cw_hello.mcfunction for Minecraft 1.20.1 that shows the chat message 'Calamity Watch online' to all players in red using tellraw. Use # for comments, never //.",
+  "contains": [
+   [
+    "Project: Fort Redux"
+   ],
+   [
+    "developer: code written"
+   ],
+   [
+    "tellraw @a",
+    "execute as @a run tellraw @s"
+   ],
+   [
+    "Calamity Watch online"
+   ],
+   [
+    "\"red\"",
+    "'red'",
+    "color\":\"red",
+    "color\": \"red"
+   ]
+  ],
+  "not_contains": [
+   "NeoForge 1.21.1",
+   "Dahaad",
+   "// "
+  ]
+ },
+ "rpg_pack_relics": {
+  "project": "rpg",
+  "task": "Review only, no code. Do Relics, Reliquified Artifacts and Reliquified L_Ender's Cataclysm have all their required mods installed at compatible versions?",
+  "contains": [
+   [
+    "Project: Cinematic RPG modpack"
+   ],
+   [
+    "pack_engineer: checked"
+   ],
+   [
+    "## DEPENDENCY CHECK"
+   ],
+   [
+    "reliquified_artifacts-1.21.1-1.0.9.jar"
+   ],
+   [
+    "Problems:"
+   ]
+  ],
+  "not_contains": [
+   "obsidian",
+   "TACZ",
+   "Create Big Cannons"
+  ]
+ },
+ "fort_pack_cbc": {
+  "project": "fort_redux",
+  "task": "Review only, no code. Does Create Big Cannons have all its required mods installed at compatible versions?",
+  "contains": [
+   [
+    "Project: Fort Redux"
+   ],
+   [
+    "pack_engineer: checked"
+   ],
+   [
+    "## DEPENDENCY CHECK"
+   ],
+   [
+    "Create Big Cannons",
+    "createbigcannons"
+   ],
+   [
+    "Problems:"
+   ],
+   [
+    "- No problems"
+   ]
+  ],
+  "not_contains": [
+   "Cinematic RPG",
+   "Dahaad",
+   "NeoForge 1.21.1",
+   "Downgrade Create to"
+  ],
+  "_note": "Create 6.0.8 is inside [6.0.7,6.1.0): any downgrade advice is wrong (25 Nov run)."
+ },
+ "rpg_master_builder": {
+  "project": "rpg",
+  "task": "Build spec only, no code, no research needed. Write a build spec for the ruined 'stump' watchtower: a ring of stone brick wall 9 blocks wide, 9 deep and 8 tall, one block thick, with a lone archway standing in it and snow drifted inside. Include a size table and layer-by-layer steps, and any terrain shaping around it.",
+  "contains": [
+   [
+    "Project: Cinematic RPG modpack"
+   ],
+   [
+    "master_builder: spec written"
+   ],
+   [
+    "## BLOCK ESTIMATES"
+   ],
+   [
+    "9 x 9 x 8"
+   ],
+   [
+    "stone brick"
+   ]
+  ],
+  "not_contains": [
+   "obsidian",
+   "vscarmor",
+   "sentry",
+   "(not a known block"
+  ]
+ },
+ "rpg_lore_journal": {
+  "project": "rpg",
+  "task": "Lore only, no code, no research needed. Write the last journal entry of the final king of Dahaad, found in the crypt under the crest statue: two short book pages, written as the frost closes in.",
+  "contains": [
+   [
+    "Project: Cinematic RPG modpack"
+   ],
+   [
+    "lore_writer: written"
+   ],
+   [
+    "Dahaad"
+   ],
+   [
+    "Page 1"
+   ],
+   [
+    "frost",
+    "ice",
+    "cold",
+    "snow"
+   ]
+  ],
+  "not_contains": [
+   "(lore check: '",
+   "fell to something other than the frost",
+   "block",
+   "player",
+   "minecraft:"
+  ]
+ },
+ "rpg_gameplay_tiers": {
+  "project": "rpg",
+  "task": "Gameplay only, no code, no research needed. Design the first three hunting tiers of the pack: the hunting loop, then a tier table of what you hunt, the gear you craft and its materials, using only mods that are installed.",
+  "contains": [
+   [
+    "Project: Cinematic RPG modpack"
+   ],
+   [
+    "pack_engineer: checked"
+   ],
+   [
+    "gameplay_designer: designed"
+   ],
+   [
+    "Tier 1",
+    "Tier I"
+   ],
+   [
+    "Tier 3",
+    "Tier III"
+   ],
+   [
+    "Mods used"
+   ]
+  ],
+  "not_contains": [
+   "(tier check:",
+   "(mod check:",
+   "(lore check: '",
+   "fell to something other than the frost",
+   "architect: plan written",
+   "Mechanical Press",
+   "TACZ"
+  ]
+ },
+ "rpg_research_wild_hunt": {
+  "project": "rpg",
+  "task": "Research only, no code. Does the Wild Hunt mod have a NeoForge 1.21.1 build, and which other mods does it need? Say 'not installed' if it isn't in the Cinema instance. Do not suggest other mods.",
+  "contains": [
+   [
+    "Project: Cinematic RPG modpack"
+   ],
+   [
+    "researcher: looked up"
+   ],
+   [
+    "not installed"
+   ],
+   [
+    "geckolib",
+    "player animator",
+    "playeranimator"
+   ]
+  ],
+  "not_contains": [
+   "architect: plan written",
+   "designer: design written",
+   "TACZ",
+   "Create mod"
+  ]
+ },
+ "fort_designer_watchtower": {
+  "project": "fort_redux",
+  "task": "Design only, no code, no research needed. Describe the look of a small corner watchtower for the base walls: materials, shape and lighting, following the project's look rules. Keep it under 200 words.",
+  "contains": [
+   [
+    "Project: Fort Redux"
+   ],
+   [
+    "designer: design written"
+   ],
+   [
+    "deepslate",
+    "obsidian",
+    "stone brick"
+   ]
+  ],
+  "not_contains": [
+   "Dahaad",
+   "Selhaven",
+   "architect: plan written",
+   "Cinematic RPG",
+   "(not a known block"
+  ]
+ },
+ "fort_master_builder_tower": {
+  "project": "fort_redux",
+  "task": "Build spec only, no code, no research needed. Write a build spec for a square deepslate brick lookout tower 5 blocks wide, 5 deep and 10 tall, one block thick, with a ladder inside. Include a size table and layer-by-layer steps.",
+  "contains": [
+   [
+    "Project: Fort Redux"
+   ],
+   [
+    "master_builder: spec written"
+   ],
+   [
+    "## BLOCK ESTIMATES"
+   ],
+   [
+    "5 x 5 x 10"
+   ],
+   [
+    "deepslate"
+   ]
+  ],
+  "not_contains": [
+   "Dahaad",
+   "Cinematic RPG",
+   "(not a known block",
+   "architect: plan written"
+  ]
+ }
 }

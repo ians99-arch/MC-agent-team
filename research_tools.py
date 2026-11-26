@@ -13,6 +13,7 @@ Every function returns plain text and never raises; on failure it returns a one-
 Added 9 Nov 2026: docs, local mods, GitHub and YouTube.
 """
 import html
+import io
 import json
 import math
 import os
@@ -266,14 +267,18 @@ def search_minecraft_wiki(query: str, pages: int = 2, chars_per_page: int = 2500
 
 
 _LOADER_WORDS = re.compile(r"\b(neo\s?forge|forge|fabric|quilt|mods?|minecraft|mc|builds?|versions?|ports?|"
-                           r"compatib\w*|supports?|available|exists?|does|have|has|is|there|any|"
+                           r"compatib\w*|supports?|available|exists?|does|have|has|is|there|any|dependenc\w*|depends?|requires?|"
+                           r"required|requirements?|needs?|which|what|other|pinned|status|"
                            r"\d+\.\d+(?:\.\d+)?)\b|[?!]", re.I)
 
 
 def _modrinth_query(query: str) -> str:
     """Drop loader / version / 'mod' words: Modrinth matches them against mod names and finds nothing
     (25 Nov: 'neoforge 1.21.1 monster hunter mods' got no hits). The loader and version go in facets."""
-    return " ".join(_LOADER_WORDS.sub(" ", query).split()) or query
+    words = _LOADER_WORDS.sub(" ", query).split()
+    while words and words[-1].lower() in ("and", "or", "the", "of", "for", "with", "a", "it"):
+        words.pop()                     # 25 Nov: 'Wild Hunt and dependencies' -> 'Wild Hunt and' found nothing
+    return " ".join(words) or query
 
 
 def search_modrinth(query: str, limit: int = 3) -> str:
@@ -736,7 +741,7 @@ def search_mod_docs(query: str, chars: int = 2400, task: str = "") -> str:
 
 # ---------------------------------------------------------------- 2. local modpack files
 _MOD_INDEX = None
-_INDEX_FORMAT = 2        # bump when _read_mod_meta changes, so old cached indexes are rebuilt
+_INDEX_FORMAT = 5        # bump when _read_mod_meta changes, so old cached indexes are rebuilt
 
 
 def _mods_dir() -> str:
@@ -789,6 +794,37 @@ def _read_mod_meta(z: zipfile.ZipFile, fname: str) -> list[tuple[str, str]]:
     return entries
 
 
+def _bundled_jars(z: zipfile.ZipFile) -> list[str]:
+    """Paths of jars bundled inside a jar: listed in META-INF/jarjar/metadata.json (they can live anywhere, e.g.
+    META-INF/jars/ for LambDynamicLights), plus any loose META-INF/jarjar/*.jar."""
+    names = set(z.namelist())
+    paths = [n for n in names if n.startswith("META-INF/jarjar/") and n.endswith(".jar")]
+    if "META-INF/jarjar/metadata.json" in names:
+        try:
+            meta = json.loads(z.read("META-INF/jarjar/metadata.json").decode("utf-8", "ignore"))
+            paths += [j.get("path", "") for j in meta.get("jars", []) if j.get("path") in names]
+        except Exception:
+            pass
+    return list(dict.fromkeys(paths))
+
+
+def _index_bundled(z: zipfile.ZipFile, outer: str, entries: list, depth: int = 0) -> None:
+    """Libraries bundled inside a jar, and inside those (25 Nov 2026: xaerolib, punchy_expressions, mezz_config and
+    LambDynamicLights' runtime + its own api/spruceui/yumi libraries were all reported missing). 3 levels max."""
+    if depth >= 3:
+        return
+    for inner in _bundled_jars(z):
+        try:
+            with zipfile.ZipFile(io.BytesIO(z.read(inner))) as zi:
+                label = f"{outer} (bundled {inner.rsplit('/', 1)[-1]})"
+                for kind, text in _read_mod_meta(zi, label):
+                    if kind != "lang":              # names come from the outer mod; keep the index small
+                        entries.append({"jar": outer, "kind": kind, "text": text})
+                _index_bundled(zi, outer, entries, depth + 1)
+        except Exception:
+            continue
+
+
 def _build_mod_index() -> list[dict]:
     mods_dir = _mods_dir()
     jars = sorted(f for f in os.listdir(mods_dir) if f.lower().endswith(".jar"))
@@ -811,6 +847,7 @@ def _build_mod_index() -> list[dict]:
             with zipfile.ZipFile(os.path.join(mods_dir, f)) as z:
                 for kind, text in _read_mod_meta(z, f):
                     entries.append({"jar": f, "kind": kind, "text": text})
+                _index_bundled(z, f, entries)
         except Exception:
             continue
     with open(cache, "w", encoding="utf-8") as fh:
@@ -907,10 +944,18 @@ def installed_mods() -> list[tuple[str, str, str]]:
 
 
 # ---------------------------------------------------------------- dependency checker (25 Nov 2026)
+_PRE = re.compile(r"[-.]?(alpha|beta|pre|rc)[.-]?(\d*)", re.I)
+_PRE_RANK = {"alpha": 0, "beta": 1, "pre": 2, "rc": 2}
+
+
 def _version_key(v: str) -> tuple | None:
-    """'9.6.1+1.21.1' -> (9, 6, 1); None when there are no numbers to compare."""
-    nums = re.findall(r"\d+", (v or "").split("+")[0])
-    return tuple(int(n) for n in nums[:4]) if nums else None
+    """'9.6.1+1.21.1' -> (9, 6, 1, 0, 3, 0); None when there are no numbers to compare. Pre-releases sort before
+    the release: alpha < beta < pre/rc < release (25 Nov 2026: 1.0.0-beta.1 was judged older than 1.0.0-alpha.13)."""
+    base = (v or "").split("+")[0]
+    m = _PRE.search(base)
+    core, rank, pre = (base[:m.start()], _PRE_RANK[m.group(1).lower()], int(m.group(2) or 0)) if m else (base, 3, 0)
+    nums = [int(n) for n in re.findall(r"\d+", core)[:4]]
+    return tuple(nums + [0] * (4 - len(nums))) + (rank, pre) if nums else None
 
 
 def _cmp(a: tuple, b: tuple) -> int:
@@ -969,8 +1014,14 @@ def _mod_records() -> list[dict]:
                 name = m.group(1).strip()
                 if re.fullmatch(r"[a-z0-9_]+", name):
                     name = name.replace("_", " ").title()
-                mods.setdefault(m.group(2), {"name": name, "id": m.group(2), "version": m.group(3),
-                                             "jar": m.group(4).strip()})
+                rec = {"name": name, "id": m.group(2), "version": m.group(3), "jar": m.group(4).strip()}
+                have = mods.get(m.group(2))
+                # Several jars can carry the same mod (a bundled old Architectury, 25 Nov 2026): the game loads
+                # the newest, so keep the newest; on a tie keep the standalone jar.
+                order = _cmp(_version_key(rec["version"]), _version_key(have["version"])) if have else 1
+                if (order > 0 or (order == 0 and "(bundled" in have["jar"]
+                            and "(bundled" not in rec["jar"])):
+                    mods[m.group(2)] = rec
         elif e["kind"] == "dependency":
             m = re.match(r"([\w.-]+) (requires|optionally uses) ([\w.-]+) ?(.*)$", e["text"])
             if m:
@@ -978,6 +1029,11 @@ def _mod_records() -> list[dict]:
     for mid, rec in mods.items():
         rec["deps"] = list(dict.fromkeys(deps.get(mid, [])))
     return list(mods.values())
+
+
+# Mods that only run through a bridge mod (mod id -> bridge ids). Their own jar lists the requirements of the
+# loader they were built for, which the bridge replaces.
+_BRIDGES = {"voxy": ("roxy",)}
 
 
 def dependency_report(task: str, max_lines: int = 40) -> str:
@@ -998,11 +1054,17 @@ def dependency_report(task: str, max_lines: int = 40) -> str:
     lines, problems, unchecked = [], 0, 0
     for r in sorted(scope, key=lambda r: r["name"].lower()):
         rows = []
+        bridge = next((b for b in _BRIDGES.get(r["id"], ()) if b in by_id), None)
+        if bridge:                                   # 25 Nov 2026: Voxy's Fabric needs were flagged; Roxy loads it
+            if named:
+                lines.append(f"{r['name']} {r['version']} ({r['jar']})")
+                lines.append(f"  - loaded through {by_id[bridge]['name']}: its own requirements don't apply")
+            continue
         for did, rng, required in r["deps"]:
             if not required or did in ("minecraft", "neoforge", "forge", "java", "fabricloader"):
                 continue
-            dep = by_id.get(did)
-            if not dep:
+            dep = by_id.get(did) or by_id.get(did.replace("-", "_"))   # NeoForge ids can't have '-':
+            if not dep:                                               # Forgified Fabric API is fabric_api
                 rows.append(f"  - needs {did} {rng} -> NOT INSTALLED  << PROBLEM")
                 problems += 1
                 continue
@@ -1024,6 +1086,114 @@ def dependency_report(task: str, max_lines: int = 40) -> str:
     body = lines[:max_lines] + ([f"... {len(lines) - max_lines} more lines"] if len(lines) > max_lines else [])
     tail = f"Problems: {total}" + (f" ({unchecked} version ranges couldn't be checked)" if unchecked else "")
     return "\n".join([head] + body + [tail])
+
+
+def sheet_rows() -> list[dict]:
+    """The mod sheet snapshot (config.SHEET_FILE): one dict per row with Mod, Status and In Cinema.
+    Empty when the project has no sheet. The sheet records decisions; the jars stay the truth for what's installed."""
+    import csv
+    path = getattr(config, "SHEET_FILE", "")
+    if not path or not os.path.exists(path):
+        return []
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            return [r for r in csv.DictReader(f) if (r.get("Mod") or "").strip()]
+    except (OSError, csv.Error):
+        return []
+
+
+def sheet_status(mod: str) -> str:
+    """The sheet's Status for a mod name ('' if it isn't on the sheet). Loose match: either name inside the other."""
+    m = re.sub(r"[^a-z0-9 ]", "", mod.lower()).strip()
+    if len(m) < 4:
+        return ""
+    for r in sheet_rows():
+        n = re.sub(r"\(.*?\)", "", r["Mod"]).lower()
+        n = re.sub(r"[^a-z0-9 ]", "", n).strip()
+        if n and (m == n or (len(n) >= 4 and (n in m or m in n))):
+            return (r.get("Status") or "").strip()
+    return ""
+
+
+# ---------- Crash reader (25 Nov 2026: More Relics 1.8.0 crashed Cinema on launch; the jar metadata said OK) ----
+_CRASH_PATTERNS = [
+    (re.compile(r"Failed to register automatic subscribers\. ModID: (\S+)"), "mod '{0}' failed to load"),
+    (re.compile(r"(?:NoClassDefFoundError|ClassNotFoundException): ([\w.$/]+)"), "missing code: {0}"),
+    (re.compile(r"Mixin apply for mod (\S+) failed"), "mod '{0}' couldn't patch the game (mixin failed)"),
+    (re.compile(r"Mod ID: '([\w-]+)', Requested by: '([\w-]+)', Expected range: '([^']*)'(?:, Actual version: '([^']*)')?"),
+     "'{1}' needs '{0}' {2} (have: {3})"),
+    (re.compile(r"Missing or unsupported mandatory dependencies"), "required mods are missing (see the lines above)"),
+    (re.compile(r"Caused by: ([\w.]+(?:Exception|Error)): ([^\n]{0,160})"), "{0}: {1}"),
+]
+
+
+def _instance_files(name: str) -> list[str]:
+    folder = os.path.join(config.MODPACK_DIR, name)
+    try:
+        return [os.path.join(folder, f) for f in os.listdir(folder)]
+    except OSError:
+        return []
+
+
+def _owner_mod(cls: str, ids: list[str]) -> str:
+    """The installed mod whose id appears in a Java class/package name ('it.hurts.sskirillss.relics...' -> relics)."""
+    parts = re.split(r"[./$]", cls.lower())
+    return next((i for i in sorted(ids, key=len, reverse=True) if i in parts), "")
+
+
+def crash_report(max_lines: int = 12) -> str:
+    """What broke the last launch, read from Cinema's newest crash report and latest.log. Facts only, from the
+    files; the Pack Engineer explains them. Empty string when there's nothing to read."""
+    crashes = sorted((f for f in _instance_files("crash-reports") if f.endswith(".txt")), key=os.path.getmtime)
+    latest = os.path.join(config.MODPACK_DIR, "logs", "latest.log")
+    sources = ([crashes[-1]] if crashes else []) + ([latest] if os.path.exists(latest) else [])
+    if not sources:
+        return ""
+    ids = [r["id"] for r in _mod_records()]
+    texts = []
+    for path in sources:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                texts.append(f.read())
+        except OSError:
+            pass
+    found, seen, latest_hits = [], set(), 0
+    for rx, fmt in _CRASH_PATTERNS:                  # pattern order = importance: failed mods first
+        # "Caused by" lines only from the crash report: a running game's log has handled errors too (25 Nov)
+        for text in (texts[:1] if crashes and rx.pattern.startswith("Caused by") else texts):
+            for m in rx.finditer(text):
+                start = text.rfind("\n", 0, m.start()) + 1
+                line_text = text[start:text.find("\n", m.end()) if "\n" in text[m.end():] else len(text)]
+                if "/WARN]" in line_text or "Error loading class" in line_text:
+                    continue                         # optional add-on hooks for mods that aren't installed
+                line = fmt.format(*[(g or "?").replace("/", ".") if "." in (g or "") or "/" in (g or "") else (g or "?")
+                                    for g in m.groups()])
+                if "missing code" in line:
+                    owner = _owner_mod(m.group(1), ids)
+                    line += f" (belongs to '{owner}': the mod that needs it was built for a different version of it)" \
+                        if owner else ""
+                if text is texts[-1] and os.path.exists(latest):
+                    latest_hits += 1                 # something wrong in the newest log itself
+                if line not in seen:
+                    seen.add(line)
+                    found.append(line)
+    when = ""
+    if crashes:
+        ctime = os.path.getmtime(crashes[-1])
+        mods_changed = max((os.path.getmtime(f) for f in _instance_files("mods")), default=0)
+        when = (f"newest crash report: {os.path.basename(crashes[-1])}"
+                + (" (older than your last mod change: it may already be fixed; launch again to check)"
+                   if mods_changed > ctime else ""))
+    # A log newer than the crash report with nothing wrong in it means the game has loaded since (25 Nov 2026).
+    clean = os.path.exists(latest) and not latest_hits and (
+        not crashes or os.path.getmtime(latest) > os.path.getmtime(crashes[-1]) + 60)
+    head = "## LAST LAUNCH (read from the instance's crash report and latest.log)"
+    if clean:
+        return head + "\n- latest.log shows no load errors." + (
+            f" (It's newer than the last crash report, {os.path.basename(crashes[-1])}, so that crash is fixed.)"
+            if crashes else "")
+    body = [f"- {l}" for l in found[:max_lines]] or ["- a crash report exists but no known error pattern was found"]
+    return "\n".join([head] + ([f"- {when}"] if when else []) + body)
 
 
 def installed_mod_names() -> list[str]:
