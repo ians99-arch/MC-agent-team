@@ -19,7 +19,8 @@ if "--project" in sys.argv:
 from langgraph.graph import END, StateGraph
 
 import config
-from agents import WORKERS, TeamState, architect, designer, developer, orchestrator, pack_engineer, researcher
+from agents import (WORKERS, TeamState, architect, designer, developer, master_builder, orchestrator,
+                    pack_engineer, researcher)
 
 
 # Markers the checks in agents.py add to the agents' text, with how the summary names them (25 Nov 2026).
@@ -49,7 +50,7 @@ def finalize(state: TeamState) -> dict:
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     path = os.path.join(config.OUTPUT_DIR, f"report_{stamp}.md")
-    body = "\n".join(state.get(k) or "" for k in ("plan", "research", "pack", "design", "code"))
+    body = "\n".join(state.get(k) or "" for k in ("plan", "research", "pack", "design", "build", "code"))
     sections = [
         f"# {state['task']}",
         f"Project: {config.PROJECT_NAME}",
@@ -58,6 +59,7 @@ def finalize(state: TeamState) -> dict:
         "## Minecraft research", state.get("research") or "_not needed_",
         "## Pack check", state.get("pack") or "_not needed_",
         "## Design", state.get("design") or "_not needed_",
+        "## Build spec", state.get("build") or "_not needed_",
         "## Code", state.get("code") or "_not needed_",
         "## Work log", "\n".join(f"- {h}" for h in state.get("history", [])),
     ]
@@ -74,6 +76,7 @@ def build_graph():
     g.add_node("developer", developer)
     g.add_node("researcher", researcher)
     g.add_node("pack_engineer", pack_engineer)
+    g.add_node("master_builder", master_builder)
     g.add_node("finalize", finalize)
 
     g.set_entry_point("orchestrator")

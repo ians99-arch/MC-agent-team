@@ -49,7 +49,7 @@ PROJECTS = {
         "notes": os.path.join(_HERE, "project.md"),
         "modpack_dir": os.path.join(_INSTANCES, "Zombies"),
         "loader": "forge", "game_version": "1.20.1", "mod_docs": True,
-        "workers": ["architect", "designer", "developer", "researcher", "pack_engineer"],
+        "workers": ["architect", "designer", "developer", "researcher", "pack_engineer", "master_builder"],
         "context": "Minecraft 1.20.1 Forge modpack from CurseForge, using the Create mod and TACZ.",
     },
     "rpg": {
@@ -57,7 +57,7 @@ PROJECTS = {
         "notes": os.path.join(_HERE, "projects", "rpg.md"),
         "modpack_dir": os.path.join(_INSTANCES, "Cinema"),
         "loader": "neoforge", "game_version": "1.21.1", "mod_docs": False,
-        "workers": ["architect", "designer", "developer", "researcher", "pack_engineer"],
+        "workers": ["architect", "designer", "developer", "researcher", "pack_engineer", "master_builder"],
         "context": "Minecraft 1.21.1 NeoForge modpack from CurseForge (instance 'Cinema'): a cinematic "
                    "dark-fantasy winter RPG with Monster Hunter-style hunting. Only NeoForge 1.21.1 builds count; "
                    "Forge 1.20.1-only mods are 'Pinned', not usable.",

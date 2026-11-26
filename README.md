@@ -1,4 +1,4 @@
-# Agent Graph — Orchestrator + 5 agents
+# Agent Graph — Orchestrator + 6 agents
 
 A LangGraph "supervisor" graph that runs on your local Ollama model (no API costs).
 
@@ -53,6 +53,12 @@ pack if it names none), every required mod is looked up in the jars and its vers
 mod asks for. Problems are marked `<< PROBLEM`; the agent only explains the result. Tasks mentioning compatibility,
 dependencies, the mod list, conflicts or crashes bring it in automatically. Each project lists its agents in
 `PROJECTS[...]["workers"]` in config.py.
+
+## Master Builder (added 25 Nov 2026)
+Turns a plan or design into a buildable spec: a size table (Part | W x D x H | blocks), layer-by-layer steps and
+terrain shaping (the Terraformer is folded in). Block counts are worked out in code from the size table
+(`BLOCK ESTIMATES`), and every agent's "A x B = C" sums are checked. Tasks asking for a build spec, blueprint,
+layer-by-layer plan, block counts or terrain bring it in.
 
 ## Keeping it working (added 25 Nov 2026)
 - **Self-checks:** `run_tests.py` (or the `self_test` tool from Claude) tests the code in about a second, no model needed.

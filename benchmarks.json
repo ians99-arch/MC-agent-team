@@ -123,6 +123,9 @@
         "designer: design written"
       ],
       [
+        "master_builder: spec written"
+      ],
+      [
         "smithy"
       ],
       [
@@ -236,5 +239,32 @@
       "Downgrade Create to"
     ],
     "_note": "Create 6.0.8 is inside [6.0.7,6.1.0): any downgrade advice is wrong (25 Nov run)."
+  },
+  "rpg_master_builder": {
+    "project": "rpg",
+    "task": "Build spec only, no code, no research needed. Write a build spec for the ruined 'stump' watchtower: a ring of stone brick wall 9 blocks wide, 9 deep and 8 tall, one block thick, with a lone archway standing in it and snow drifted inside. Include a size table and layer-by-layer steps, and any terrain shaping around it.",
+    "contains": [
+      [
+        "Project: Cinematic RPG modpack"
+      ],
+      [
+        "master_builder: spec written"
+      ],
+      [
+        "## BLOCK ESTIMATES"
+      ],
+      [
+        "9 x 9 x 8"
+      ],
+      [
+        "stone brick"
+      ]
+    ],
+    "not_contains": [
+      "obsidian",
+      "vscarmor",
+      "sentry",
+      "(not a known block"
+    ]
   }
 }

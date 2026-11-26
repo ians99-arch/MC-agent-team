@@ -16,7 +16,7 @@ from research_tools import (dependency_report, installed_mod_names, installed_mo
 PROJECT_NOTES = load_project_notes()
 MOD_LIST = mod_list_text()
 
-WORKERS = ["architect", "designer", "developer", "researcher", "pack_engineer"]   # every agent; projects pick theirs in config
+WORKERS = ["architect", "designer", "developer", "researcher", "pack_engineer", "master_builder"]   # every agent; projects pick theirs in config
 
 
 # ---------- Shared state ----------
@@ -27,6 +27,7 @@ class TeamState(TypedDict, total=False):
     code: str          # Developer
     research: str      # Minecraft Researcher
     pack: str          # Pack Engineer (dependency check + explanation)
+    build: str         # Master Builder (build spec, terrain steps, block estimates)
     instructions: str  # Orchestrator's note to the next agent
     next: str
     steps: int
@@ -115,6 +116,7 @@ def _context(state: TeamState) -> str:
         f"DESIGN:\n{_clip(state.get('design')) or '(none yet)'}\n\n"
         f"MINECRAFT RESEARCH:\n{_clip(state.get('research'), 5000) or '(none yet)'}\n\n"
         f"PACK CHECK:\n{_clip(state.get('pack'), 2500) or '(none yet)'}\n\n"
+        f"BUILD SPEC:\n{_clip(state.get('build'), 3000) or '(none yet)'}\n\n"
         f"CODE:\n{_clip(state.get('code'), 3000) or '(none yet)'}\n\n"
         f"ORCHESTRATOR'S INSTRUCTIONS FOR YOU:\n{state.get('instructions', '')}"
     )
@@ -122,7 +124,7 @@ def _context(state: TeamState) -> str:
 
 # ---------- Orchestrator ----------
 class Route(BaseModel):
-    next: Literal["architect", "designer", "developer", "researcher", "pack_engineer", "FINISH"]
+    next: Literal["architect", "designer", "developer", "researcher", "pack_engineer", "master_builder", "FINISH"]
     instructions: str = Field(description="What the chosen agent should do next")
     reason: str = Field(description="One short sentence on why")
 
@@ -133,6 +135,7 @@ ORCHESTRATOR_PROMPT = """You are the Orchestrator of a small team:
 - developer: writes code, configs, scripts, KubeJS/datapacks, commands
 - researcher: looks up Minecraft facts, mechanics, recipes, mods (Create, TACZ, etc.)
 - pack_engineer: checks the installed mods' versions, required mods and compatibility from the real mod files
+- master_builder: turns a plan/design into a buildable spec (size table, layer-by-layer steps, terrain shaping)
 Pick ONE agent to act next, or FINISH when the task is fully covered.
 Don't repeat an agent unless its output needs revising. Prefer research before
 design/code when Minecraft facts matter. Reply only with the JSON requested."""
@@ -147,7 +150,10 @@ _WANTS = [("designer", "designer: design written", re.compile(r"\bdesign\b", re.
           ("developer", "developer: code written",
            re.compile(r"\b(code|function|datapack|mcfunction|script|config file|kubejs)\b", re.I)),
           ("pack_engineer", "pack_engineer: checked",
-           re.compile(r"\b(compatib\w*|dependenc\w*|required mods?|mod list|conflicts?|crash\w*|missing mods?)\b", re.I))]
+           re.compile(r"\b(compatib\w*|dependenc\w*|required mods?|mod list|conflicts?|crash\w*|missing mods?)\b", re.I)),
+          ("master_builder", "master_builder: spec written",
+           re.compile(r"\b(build spec|blueprint|layer[- ]by[- ]layer|block (?:list|counts?)|how many blocks|"
+                      r"terraform\w*|terrain)\b", re.I))]
 
 
 def _runs(state: TeamState, agent: str) -> int:
@@ -159,7 +165,7 @@ def _allowed(state: TeamState, agent: str) -> bool:
         return False                               # not on this project's roster
     if agent == "developer" and _NO_CODE.search(state.get("task", "")):
         return False                               # the task said no code
-    if agent in ("architect", "designer", "developer") and _runs(state, agent) >= MAX_RUNS_PER_AGENT:
+    if agent in ("architect", "designer", "developer", "master_builder") and _runs(state, agent) >= MAX_RUNS_PER_AGENT:
         return False
     if agent == "pack_engineer" and _runs(state, agent) >= 1:
         return False                               # its check is code: running it twice gives the same answer
@@ -443,6 +449,65 @@ def _pack_summary(report: str) -> str:
     return "\n".join(out)
 
 
+_MATH = re.compile(r"(?<![\d.])(\d+)\s*[x×*]\s*(\d+)(?:\s*[x×*]\s*(\d+))?\s*=\s*(\d{1,3}(?:,\d{3})+|\d+)(?![\d.])")
+
+
+def _math_check(out: str) -> str:
+    """Correct wrong 'A x B (x C) = N' sums (25 Nov 2026: small models get multiplication wrong)."""
+    def fix(m):
+        a, b, c = int(m.group(1)), int(m.group(2)), int(m.group(3) or 1)
+        said, right = int(m.group(4).replace(",", "")), a * b * c
+        if said == right or out[m.end():m.end() + 13] == " (correction:":
+            return m.group(0)
+        return m.group(0) + f" (correction: = {right:,})"
+    return _MATH.sub(fix, out)
+
+
+_SIZE_ROW = re.compile(r"^\s*\|\s*\**([^|*]+?)\**\s*\|[^\n]*?(\d+)\s*[x×]\s*(\d+)\s*[x×]\s*(\d+)", re.M)
+
+
+_NOT_A_BUILDING = re.compile(r"terrain|ground|drift|snow|ice field|shore|cliff|water|path|area|site|footprint", re.I)
+
+
+def _block_estimates(spec: str) -> str:
+    """Block counts worked out in code for every 'W x D x H' row of the spec's size table: walls one block
+    thick first, then floor and roof for parts that have them. Terrain rows are skipped (not a building)."""
+    rows = []
+    for m in _SIZE_ROW.finditer(spec):
+        name, w, d, h = m.group(1).strip(), int(m.group(2)), int(m.group(3)), int(m.group(4))
+        if (not (1 <= w <= 256 and 1 <= d <= 256 and 1 <= h <= 384) or name.lower().startswith(("part", "room", "-"))
+                or _NOT_A_BUILDING.search(name)):
+            continue
+        walls = 2 * h * (w + d - 2) if w > 1 and d > 1 else w * d * h
+        floor = w * d
+        stacks = lambda n: f"{-(-n // 64)} stack{'s' if n > 64 else ''}"
+        rows.append(f"- {name} ({w} x {d} x {h}): walls {walls:,} blocks ({stacks(walls)}); "
+                    f"floor {floor:,} and roof {floor:,} more if it has them")
+    if not rows:
+        return ""
+    return ("## BLOCK ESTIMATES (worked out in code for 1-block walls; openings, ruins and pitched roofs change it)\n"
+            + "\n".join(rows))
+
+
+def master_builder(state: TeamState) -> dict:
+    """Build specs, including terrain shaping (Terraformer folded in, 25 Nov 2026)."""
+    out = _ask(
+        "You are the Master Builder; you also plan terrain. Turn the plan or design into a spec someone can "
+        "build from: 1) a size table with columns Part | Size (W x D x H blocks) | Main blocks, one row per "
+        "part, sizes written exactly like '9 x 9 x 8'; 2) numbered layer-by-layer build steps, from the "
+        "ground up; 3) terrain shaping steps if the site needs them (cliffs, shoreline, ice). Use real block "
+        "names from vanilla or the installed mods, and keep to the project's look rules. Don't count blocks "
+        "yourself: block estimates are added by code from your size table. Write only those three sections: "
+        "no notes for other agents, no extra tips or warnings, no claims about mods. Worldgen mods (terrain, "
+        "biome, structure mods) only act when the world generates; hand terrain is shaped by hand or WorldEdit."
+        + _GROUNDED,
+        _context(state), model=design_llm,
+    )
+    out = _math_check(_worker_check(out, state))
+    est = _block_estimates(out)
+    return {"build": out + ("\n\n" + est if est else ""), "history": ["master_builder: spec written"]}
+
+
 def _research_calls(state: TeamState) -> int:
     return sum(1 for h in state.get("history", []) if h.startswith("researcher:"))
 
@@ -629,6 +694,7 @@ def _worker_check(out: str, state: TeamState) -> str:
     out = _known_mistakes(out)
     out = _installed_check(out)
     out = _range_check(out)
+    out = _math_check(out)
     out = _check_blocks(out)
     out = _label_new_parts(out, evidence)
     return _label_tips(out, evidence)
@@ -687,6 +753,10 @@ def _num(n: float) -> str:
 # Mistakes the 8B model has made before, with the correction shown next to them (10 Nov 2026).
 # Add a line here whenever a report gets a Create fact wrong. Each pattern is checked per clause.
 KNOWN_MISTAKES = [
+    (r"\b(blue ice|packed ice|ice|snow(?: blocks?)?)\b[^.\n]{0,60}?\b(emit|emits|emitting|give off|gives off|glow|glows|"
+     r"glowing|cast|casts|produce|produces|radiat\w*)\b[^.\n]{0,30}\blight",
+     "ice and snow give off no light; for cold light use soul lanterns, sea lanterns, or glowstone behind blue "
+     "stained glass"),
     (r"(mechanical arms?|funnels?|chutes?|hoppers?)\s+(?:to |that |which )?(?:carr|transmit|deliver|distribut|send|"
      r"driv|pass)\w*\s+(?:the\s+)?(power|rotation|SU|speed)\b"
      r"|\b(power|rotation)\w*\s+(?:is |are )?(?:[\w',\u2019]+\s+){0,3}?(?:through|via|by|using)\s+"

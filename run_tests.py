@@ -678,6 +678,8 @@ def _():
               "history": ["architect: plan written"]}
         assert agents.orchestrator(st)["next"] == "designer"
         st["history"].append("designer: design written")
+        assert agents.orchestrator(st)["next"] == "master_builder"   # 'build spec' asks for the Master Builder
+        st["history"].append("master_builder: spec written")
         assert agents.orchestrator(st)["next"] == "FINISH"       # 'no code': the Developer isn't required
         st = {"task": "Code only, no research needed. Write a datapack function.", "steps": 1, "history": []}
         assert agents.orchestrator(st)["next"] == "developer"
@@ -941,6 +943,44 @@ def _():
         assert not agents._allowed({"task": "compatible?", "history": []}, "pack_engineer")
     finally:
         config.WORKERS = old
+
+
+@check("math check: wrong multiplication is corrected, right sums and unit sums are left alone")
+def _():
+    out = agents._math_check("Walls 9 x 9 = 72, floor 9 x 9 = 81, tower 10 x 10 x 8 = 800, 4 x 256 = 1,024, 8 x 32 RPM = 256 SU")
+    assert "9 x 9 = 72 (correction: = 81)" in out and out.count("(correction:") == 1, out
+
+
+@check("block estimates: each W x D x H row of the size table gets counts from code")
+def _():
+    spec = ("| Part | Size (W x D x H blocks) | Main blocks |\n|---|---|---|\n"
+            "| Stump wall | 9 x 9 x 8 | stone bricks |\n| **Archway** | 3 x 1 x 5 | stone bricks |\n"
+            "| Surrounding Terrain | 10 x 10 x 3 | tuff |")
+    est = agents._block_estimates(spec)
+    assert "Stump wall (9 x 9 x 8): walls 256 blocks (4 stacks); floor 81 and roof 81 more if it has them" in est, est
+    assert "Archway (3 x 1 x 5): walls 15 blocks (1 stack)" in est and "Part (" not in est and "Terrain" not in est, est
+    assert agents._block_estimates("no table here") == ""
+
+
+@check("master builder: build-spec tasks bring it in, and its output carries the code's estimates")
+def _():
+    assert agents._WANTS[3][0] == "master_builder" and agents._WANTS[3][2].search("Write a build spec")
+    old_ask = agents._ask
+    agents._ask = lambda *a, **k: "| Part | Size | Blocks |\n|---|---|---|\n| Tower | 5 x 5 x 4 | stone bricks |\n1. Lay the floor."
+    old_names = agents.known_block_names
+    agents.known_block_names = lambda: set()
+    try:
+        out = agents.master_builder({"task": "build spec for a tower", "history": []})
+    finally:
+        agents._ask, agents.known_block_names = old_ask, old_names
+    assert out["history"] == ["master_builder: spec written"] and "## BLOCK ESTIMATES" in out["build"], out
+    assert "Tower (5 x 5 x 4): walls 64 blocks (1 stack)" in out["build"], out["build"]
+
+
+@check("known mistakes: 'blue ice emits light' gets a correction (it gives no light)")
+def _():
+    out = agents._known_mistakes("- Place Blue Ice on the outer wall to emit cold blue light.\n- Lanterns give warm light.")
+    assert "(correction: ice and snow give off no light" in out and out.count("(correction:") == 1, out
 
 
 passed = sum(results)
