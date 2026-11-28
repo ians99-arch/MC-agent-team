@@ -604,7 +604,8 @@ def _block_estimates(spec: str) -> str:
     rows = []
     for m in _SIZE_ROW.finditer(spec):
         name, w, d, h = m.group(1).strip(), int(m.group(2)), int(m.group(3)), int(m.group(4))
-        if (not (1 <= w <= 256 and 1 <= d <= 256 and 1 <= h <= 384) or name.lower().startswith(("part", "room", "-"))
+        if (not (1 <= w <= 256 and 1 <= d <= 256 and 1 <= h <= 384)
+                or name.lower().startswith(("part", "room", "-", "overall", "whole", "total"))
                 or _NOT_A_BUILDING.search(name)):
             continue
         walls = 2 * h * (w + d - 2) if w > 1 and d > 1 else w * d * h
@@ -618,12 +619,69 @@ def _block_estimates(spec: str) -> str:
             + "\n".join(rows))
 
 
+def _size_rows(spec: str) -> list[tuple[str, int, int, int, str]]:
+    """(part, W, D, H, main-blocks cell) for every size-table row."""
+    rows = []
+    for line in spec.splitlines():
+        m = _SIZE_ROW.search(line)
+        if m:
+            cells = [c for c in line.strip().strip("|").split("|") if c.strip()]
+            rows.append((m.group(1).strip(), int(m.group(2)), int(m.group(3)), int(m.group(4)),
+                         cells[-1] if len(cells) >= 3 else ""))
+    return rows
+
+
+def _table_block_check(spec: str) -> str:
+    """Check the size table's 'Main blocks' column against real block names (27 Nov 2026: a crest statue spec
+    used 'Amber Block', which doesn't exist; the bold-name check never saw it because table cells aren't bold)."""
+    names = known_block_names()
+    if not names:
+        return spec
+    name_words = [{_stem(w) for w in re.findall(r"[a-z'’-]+", n)} for n in names]
+    bad = []
+    for *_, cell in _size_rows(spec):
+        for phrase in re.split(r",|/|;|\band\b|\bwith\b|\bor\b", re.sub(r"\(.*?\)", "", cell.replace("*", ""))):
+            core = {_stem(w) for w in re.findall(r"[A-Za-z'’-]+", phrase)} - {"block"}
+            if core and not any(core <= nw for nw in name_words) and phrase.strip() not in bad:
+                bad.append(phrase.strip())
+    return spec + ("\n\n" + "\n".join(f"(not a known block - check: '{b}' in the size table)" for b in bad) if bad else "")
+
+
+_TASK_LONG = re.compile(r"(\d+)[\s-]*blocks?[\s-]*(?:long|wide|across)", re.I)
+_TASK_TALL = re.compile(r"(\d+)[\s-]*blocks?[\s-]*(?:tall|high|from the ground|to the)", re.I)
+
+
+def _size_check(spec: str, task: str) -> str:
+    """Compare the task's lengths and heights with the size table (27 Nov 2026: a statue asked as ~46 long and
+    ~43 tall came back 20 long and 13 tall). Within 20% (or 3 blocks) of some row counts as matching."""
+    rows = _size_rows(spec)
+    if not rows:
+        return spec
+    close = lambda a, b: abs(a - b) <= max(3, 0.2 * b)
+    notes = []
+    for n in sorted({int(x) for x in _TASK_LONG.findall(task)}):
+        if not any(close(max(w, d), n) for _, w, d, _, _ in rows):
+            notes.append(f"the task asks for about {n} blocks long, but no row of the size table is near that "
+                         f"(longest: {max(max(w, d) for _, w, d, _, _ in rows)})")
+    for n in sorted({int(x) for x in _TASK_TALL.findall(task)}):
+        if not any(close(h, n) for _, _, _, h, _ in rows):
+            notes.append(f"the task asks for about {n} blocks high, but no row of the size table is near that "
+                         f"(tallest: {max(h for *_, h, _ in rows)})")
+    overall = next((r for r in rows if r[0].lower().startswith(("overall", "whole", "total"))), None)
+    talls = [int(x) for x in _TASK_TALL.findall(task)]
+    if overall and talls and not close(overall[3], max(talls)):
+        notes.append(f"the Overall row is {overall[3]} blocks high but the task's full height is about {max(talls)} "
+                     "(parts stacked on top of each other add up)")
+    return spec + ("\n\n" + "\n".join(f"(size check: {n})" for n in notes) if notes else "")
+
+
 def master_builder(state: TeamState) -> dict:
     """Build specs, including terrain shaping (Terraformer folded in, 25 Nov 2026)."""
     out = _ask(
         "You are the Master Builder; you also plan terrain. Turn the plan or design into a spec someone can "
         "build from: 1) a size table with columns Part | Size (W x D x H blocks) | Main blocks, one row per "
-        "part, sizes written exactly like '9 x 9 x 8'; 2) numbered layer-by-layer build steps, from the "
+        "part, sizes written exactly like '9 x 9 x 8', the first row 'Overall' with the whole build's size (it must match "
+        "the sizes the task gives); 2) numbered layer-by-layer build steps, from the "
         "ground up (walls are a ring one block thick unless the task says solid: only floors and roofs fill the whole "
         "footprint; put doors, ladders and windows in the step where they go); 3) terrain shaping steps if the site needs them (cliffs, shoreline, ice). Use real block "
         "names from vanilla or the installed mods, and keep to the project's look rules. Don't count blocks "
@@ -633,7 +691,9 @@ def master_builder(state: TeamState) -> dict:
         + _GROUNDED,
         _context(state), model=design_llm,
     )
-    out = _hollow_check(_math_check(_worker_check(out, state)), state.get("task", ""))
+    task = state.get("task", "")
+    out = _hollow_check(_math_check(_worker_check(out, state)), task)
+    out = _size_check(_table_block_check(out), task)
     est = _block_estimates(out)
     return {"build": out + ("\n\n" + est if est else ""), "history": ["master_builder: spec written"]}
 

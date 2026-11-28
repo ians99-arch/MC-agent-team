@@ -37,6 +37,7 @@ FLAG_KINDS = [
     ("(code check:", "code problems"),
     ("(lore check:", "lore problems"),
     ("(look check:", "look problems"),
+    ("(size check:", "size mismatches with the task"),
     ("(tier check:", "tier problems"),
     ("(mod check:", "mods not installed"),
     ("(not a known item", "unknown items"),

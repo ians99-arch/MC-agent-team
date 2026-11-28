@@ -331,7 +331,7 @@ def _():
     restore = _with_project("rpg")
     try:
         assert config.PROJECT_FILE.endswith(os.path.join("projects", "rpg.md")), config.PROJECT_FILE
-        assert config.MODPACK_DIR.endswith("Cinema"), config.MODPACK_DIR
+        assert config.MODPACK_DIR.endswith("Dahaad"), config.MODPACK_DIR
         assert (config.LOADER, config.GAME_VERSION) == ("neoforge", "1.21.1")
         assert "1.20.1 Forge" not in config.MODPACK_CONTEXT
     finally:
@@ -1370,6 +1370,32 @@ def _():
     finally:
         config.MODPACK_DIR, rt._mod_records = old_dir, old_recs
     assert "no load errors" in out and "so that crash is fixed" in out, out
+
+
+@check("master builder: table blocks that don't exist and sizes far from the task are flagged (27 Nov statue)")
+def _():
+    spec = ("| Part | Size (W x D x H blocks) | Main Blocks |\n|---|---|---|\n"
+            "| Plinth | 20 x 20 x 10 | Deepslate, Stone Bricks (top) |\n"
+            "| Head & Crown | 12 x 12 x 13 | Blue Ice, Packed Ice, Amber Block |\n")
+    old = agents.known_block_names
+    agents.known_block_names = lambda: {"deepslate", "stone bricks", "blue ice", "packed ice"}
+    try:
+        out = agents._table_block_check(spec)
+    finally:
+        agents.known_block_names = old
+    assert "(not a known block - check: 'Amber Block' in the size table)" in out, out
+    assert "Deepslate'" not in out and "Stone Bricks" not in out.split("|")[-1], out
+    task = "statue about 46 blocks long, a 10-block-high plinth, about 43 blocks from the ground to the crown tips"
+    out = agents._size_check(spec, task)
+    assert "about 46 blocks long" in out and "longest: 20" in out and "about 43 blocks high" in out, out
+    assert "about 10 blocks high" not in out, out
+    good = "| Overall | 46 x 18 x 43 | x |\n" + spec
+    assert "(size check:" not in agents._size_check(good, task)
+    assert "Overall (" not in agents._block_estimates(good)
+    stacked = "| Overall | 46 x 2 x 53 | x |\n| Body | 46 x 2 x 43 | x |\n| Plinth | 46 x 2 x 10 | x |\n"
+    assert "the Overall row is 53 blocks high" in agents._size_check(stacked, task)
+    import graph
+    assert graph.checks_summary(out).count("size mismatches") == 1
 
 passed = sum(results)
 print(f"\n{passed}/{len(results)} checks passed" + ("" if passed == len(results) else "  <-- something is broken"))

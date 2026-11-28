@@ -60,14 +60,14 @@ PROJECTS = {
         # Words from the other project's look that must not show up here (word -> why).
         "avoid": {"obsidian": "obsidian is the Fort Redux look; use deepslate, blackstone or basalt here",
                   "armour plat": "armour plating is the Fort Redux look", "sentr": "sentries are Fort Redux"},
-        "modpack_dir": os.path.join(_INSTANCES, "Cinema"),
+        "modpack_dir": os.path.join(_INSTANCES, "Dahaad"),   # 27 Nov 2026: was Cinema
         "loader": "neoforge", "game_version": "1.21.1", "mod_docs": False,
         "workers": ["architect", "designer", "developer", "researcher", "pack_engineer", "master_builder",
                     "lore_writer", "gameplay_designer"],
         # Names the Lore Writer must spell exactly (near-misses are flagged).
         "canon_names": ["Dahaad", "Selhaven", "Deepgate", "Shardfell", "Vael", "Frost Keep", "Gilded Hall",
                         "Kings' Gate", "Lone Beacon", "Lost Manor", "Black Reach", "Jin Dahaad"],
-        "context": "Minecraft 1.21.1 NeoForge modpack from CurseForge (instance 'Cinema'): a cinematic "
+        "context": "Minecraft 1.21.1 NeoForge modpack from CurseForge (instance 'Dahaad'): a cinematic "
                    "dark-fantasy winter RPG with Monster Hunter-style hunting. Only NeoForge 1.21.1 builds count; "
                    "Forge 1.20.1-only mods are 'Pinned', not usable.",
     },
